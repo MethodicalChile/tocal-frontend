@@ -1,0 +1,7 @@
+<script setup>
+import { ref } from 'vue'; import { useRouter } from 'vue-router';
+import { api, token } from '../lib/api'; import { refreshSession } from '../lib/state';
+const router=useRouter(),email=ref(''),password=ref(''),busy=ref(false),error=ref('');
+async function submit(){ busy.value=true;error.value='';try {await token();await api.post('/auth/login',{email:email.value,password:password.value});await refreshSession();router.replace('/');}catch(e){error.value=e.message}finally{busy.value=false} }
+</script>
+<template><div class="login-page" style="min-height:100vh;display:grid;place-items:center;background:#ecebe6;padding:24px"><main class="card" style="width:min(450px,100%);padding:35px"><div class="brand" style="margin-bottom:30px"><img src="/logo-tocal.png" alt="Tocal" width="150"/></div><h1 class="page-title display">Bienvenido</h1><p class="muted">Ingresa a Control de obras Tocal</p><p v-if="error" class="notice bad" role="alert">{{error}}</p><form @submit.prevent="submit" class="stack-md"><div class="field"><label for="email">Correo electrónico</label><input id="email" v-model="email" type="email" autocomplete="username" required autofocus/></div><div class="field"><label for="password">Contraseña</label><input id="password" v-model="password" type="password" autocomplete="current-password" required/></div><button class="btn btn-primary btn-lg" style="width:100%" :disabled="busy">{{busy?'Ingresando…':'Ingresar'}}</button></form><p class="muted" style="margin-top:28px">Constructora Tocal · Acceso autorizado</p></main></div></template>

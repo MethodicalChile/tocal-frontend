@@ -1,0 +1,11 @@
+<script setup>
+import {ref,onMounted} from 'vue';import {api} from '../lib/api';import {date} from '../lib/format';import PageCard from '../components/PageCard.vue';
+const rows=ref([]),kind=ref('acceso'),detail=ref(''),error=ref(''),notice=ref(''),busy=ref(false);
+const kinds=[['acceso','Acceso'],['rectificacion','Rectificación'],['supresion','Supresión'],['oposicion','Oposición'],['portabilidad','Portabilidad'],['bloqueo','Bloqueo']];
+async function load(){try{rows.value=(await api.get('/privacidad/solicitudes')).results||[]}catch(e){error.value=e.message}}
+onMounted(load);
+async function submit(){busy.value=true;error.value='';notice.value='';try{await api.post('/privacidad/solicitudes',{tipo:kind.value,detalle:detail.value});detail.value='';notice.value='Solicitud registrada. Se revisará tu identidad y el alcance aplicable antes de responder.';await load()}catch(e){error.value=e.message}finally{busy.value=false}}
+</script>
+<template><div class="page-heading"><div class="page-heading__titles"><h1 class="page-title display">Privacidad y datos personales</h1><p class="page-description">Canal para registrar solicitudes de derechos de titulares</p></div></div><p class="notice">La presentación de una solicitud no implica su resolución automática. Se evaluarán identidad, alcance y obligaciones de conservación.</p><p v-if="error" role="alert" class="notice bad">{{error}}</p><p v-if="notice" class="notice">{{notice}}</p>
+<PageCard title="Nueva solicitud"><form @submit.prevent="submit" class="record-form"><div class="field"><label>Tipo de solicitud</label><select v-model="kind"><option v-for="[v,label] in kinds" :key="v" :value="v">{{label}}</option></select></div><div class="field"><label>Descripción (máximo 1000 caracteres)</label><textarea v-model="detail" maxlength="1000" rows="5" placeholder="Describe brevemente la información involucrada"/></div><button class="btn btn-primary" :disabled="busy">Enviar solicitud</button></form></PageCard>
+<PageCard title="Mis solicitudes"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Tipo</th><th>Estado</th></tr></thead><tbody><tr v-for="r in rows" :key="r.id"><td>{{date(r.created_at)}}</td><td>{{r.tipo}}</td><td>{{r.estado}}</td></tr><tr v-if="!rows.length"><td colspan="3">No hay solicitudes registradas.</td></tr></tbody></table></div></PageCard></template>

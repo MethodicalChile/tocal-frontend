@@ -1,0 +1,2 @@
+<script setup>defineProps({ title: String, description: String, focal: Boolean });</script>
+<template><section class="card" :class="{'card--focal': focal}"><header v-if="title || description" class="card__header"><div><h2 class="card__title">{{ title }}</h2><p v-if="description" class="card__description">{{ description }}</p></div><slot name="actions"/></header><div class="card__body"><slot/></div></section></template>

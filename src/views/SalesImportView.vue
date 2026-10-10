@@ -1,0 +1,6 @@
+<script setup>
+import {ref} from 'vue';import {RouterLink} from 'vue-router';import {api} from '../lib/api';
+const file=ref(null),error=ref(''),result=ref(null),saving=ref(false);
+async function upload(){if(!file.value)return;const fd=new FormData();fd.append('archivo',file.value);saving.value=true;error.value='';try{result.value=await api.post('/ventas/importar',fd)}catch(e){error.value=e.message}finally{saving.value=false}}
+</script>
+<template><div class="page-heading"><div class="page-heading__titles"><h1 class="page-title display">Importar planilla</h1><p class="page-description">Carga o actualiza documentos desde la planilla DASHBOARD VENTAS</p></div><RouterLink class="btn" to="/ventas/documentos">← Libro de ventas</RouterLink></div><p v-if="error" class="notice bad">{{error}}</p><p v-if="result" class="notice">Importación lista: {{result.new}} nuevos y {{result.updated}} actualizados.</p><section class="card" style="padding:25px"><form @submit.prevent="upload"><div class="field"><label for="xlsx">Archivo XLSX (máximo 20 MB)</label><input id="xlsx" type="file" accept=".xlsx" required @change="file=$event.target.files[0]"/></div><button class="btn btn-primary" :disabled="!file||saving">{{saving?'Importando…':'Importar documentos'}}</button></form></section></template>

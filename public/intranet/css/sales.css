@@ -1,0 +1,614 @@
+.currency-toggle {
+  height: var(--control-h);
+  align-items: center;
+}
+
+.sales-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.select-inline {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--control-h);
+  padding-left: var(--space-3);
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-control);
+  transition: border-color var(--dur-fast) ease;
+}
+
+.select-inline:hover {
+  border-color: var(--border-strong);
+}
+
+.select-inline:focus-within {
+  border-color: var(--ambar);
+  box-shadow: var(--ring-focus);
+}
+
+.select-inline__label {
+  font-size: var(--text-xs);
+  font-weight: 550;
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+
+.select-inline select {
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 0 var(--space-8) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background-color: transparent;
+  background-position: right 0.6rem center;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.select-inline select:focus-visible {
+  box-shadow: none;
+}
+
+.sales-kpis--secondary {
+  margin-top: calc(var(--space-5) * -1 + var(--space-3));
+}
+
+.sales-total {
+  padding: var(--space-6);
+}
+
+.sales-total__value {
+  margin-top: var(--space-4);
+  font-size: clamp(2.25rem, 4.2vw, 3rem);
+  color: var(--naranjo);
+  white-space: nowrap;
+}
+
+.sales-total__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--muted-fg);
+}
+
+.sales-total__alt {
+  font-weight: 600;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-total__cutoff {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.sales-total__cutoff .icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: 0.125rem var(--space-2) 0.125rem 0.375rem;
+  font-size: var(--text-xs);
+  color: var(--tone-ink);
+  background: var(--tone-soft);
+  border-radius: var(--radius-full);
+}
+
+.delta .icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.delta strong {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta span {
+  color: var(--fg-2);
+}
+
+.delta + .stat-tile__hint {
+  margin-top: var(--space-2);
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.sales-charts > .card,
+.sales-history > .card,
+.sales-tables > .card {
+  margin-top: 0;
+}
+
+.sales-history,
+.sales-tables {
+  margin-bottom: var(--space-5);
+}
+
+.sector-share {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.sector-share__chart {
+  width: 100%;
+  max-width: 220px;
+  margin: 0 auto;
+}
+
+.sector-list {
+  display: grid;
+  gap: var(--space-4);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.sector-list__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.sector-list__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: 550;
+}
+
+.sector-list__name .dot {
+  width: 0.55rem;
+  height: 0.55rem;
+}
+
+.sector-list__value {
+  font-weight: 650;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sector-list__name small {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter--thin {
+  height: 4px;
+  margin-top: 0.375rem;
+}
+
+.sales-tables .tbl .tbl-main {
+  min-width: 12rem;
+}
+
+.sales-tables .cell-bar {
+  grid-template-columns: 4rem auto;
+}
+
+.sales-more {
+  font-size: var(--text-sm);
+  color: var(--muted-fg);
+}
+
+.book-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.search-field {
+  position: relative;
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.search-field__icon {
+  position: absolute;
+  top: 50%;
+  left: 0.8rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: var(--muted-fg);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.search-field input {
+  padding-left: var(--space-10);
+}
+
+.book-card__head {
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.book-card__count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted-fg);
+}
+
+.book-card__count strong {
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.book-card__clp {
+  font-variant-numeric: tabular-nums;
+}
+
+.book-card__clp::before {
+  content: "(";
+}
+
+.book-card__clp::after {
+  content: ")";
+}
+
+.book-table .book-doc {
+  width: auto;
+}
+
+.book-table .tbl-main {
+  min-width: 13rem;
+}
+
+.book-table .book-obra {
+  min-width: 12rem;
+}
+
+.book-doc__type {
+  display: flex;
+  width: max-content;
+  min-height: 1.25rem;
+  margin-top: var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: 0.6875rem;
+}
+
+.book-doc__type.is-credit {
+  color: var(--bad-ink);
+  background: var(--bad-soft);
+  border-color: transparent;
+}
+
+.book-table tr.is-credit .book-amount,
+.book-table tr.is-credit .tbl-link {
+  color: var(--bad-text);
+}
+
+.book-table tr.is-credit > td:first-child {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pager__status {
+  font-size: var(--text-sm);
+  color: var(--muted-fg);
+}
+
+.pager__status strong {
+  font-weight: 650;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn.is-disabled {
+  color: var(--subtle-fg);
+  background: transparent;
+  border-color: var(--border);
+  pointer-events: none;
+}
+
+/* Mantiene el cálculo de sales_amounts: notas de crédito negativas y redondeo ROUND_HALF_UP. */
+
+.sale-summary {
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  background: var(--muted);
+  border-radius: var(--radius-card);
+}
+
+.sale-summary__title {
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.sale-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.sale-summary__grid dt {
+  font-size: var(--text-xs);
+  font-weight: 550;
+  color: var(--muted-fg);
+}
+
+.sale-summary__grid dd {
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  font-size: var(--text-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sale-summary__grid .is-strong dd {
+  font-weight: 700;
+}
+
+.sale-summary__grid .is-accent dd {
+  color: var(--naranjo);
+}
+
+.sale-summary.is-credit dd {
+  color: var(--bad-text);
+}
+
+.sale-summary__note {
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--muted-fg);
+}
+
+.import-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.import-layout > .card {
+  max-width: none;
+  margin: 0;
+}
+
+.file-drop.has-file {
+  background: var(--card);
+  border-style: solid;
+  border-color: var(--naranjo);
+}
+
+.file-drop.has-file .dropzone__title {
+  word-break: break-all;
+}
+
+.import-card .notice {
+  margin-bottom: var(--space-4);
+}
+
+.import-errors {
+  padding: 0 var(--space-6) var(--space-6);
+}
+
+.import-errors__title {
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+
+.import-errors__text {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--muted-fg);
+}
+
+.import-errors .tbl-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.import-errors .tbl th:first-child,
+.import-errors .tbl td:first-child {
+  width: 4.5rem;
+  padding-left: var(--space-4);
+}
+
+.import-help {
+  padding: var(--space-6);
+}
+
+.import-help__title {
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+
+.import-steps {
+  display: grid;
+  gap: var(--space-4);
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.import-steps li {
+  position: relative;
+  padding-left: 2.25rem;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--fg-2);
+  counter-increment: step;
+}
+
+.import-steps li::before {
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--naranjo-ink);
+  background: var(--naranjo-soft);
+  border-radius: var(--radius-full);
+}
+
+.import-steps strong {
+  display: block;
+  color: var(--fg);
+}
+
+.import-steps code {
+  padding: 0 var(--space-1);
+  font-size: 0.85em;
+  background: var(--muted);
+  border-radius: 0.3rem;
+}
+
+@media (max-width: 1280px) {
+  .sales-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .import-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .currency-toggle {
+    flex: 1 1 100%;
+  }
+
+  .currency-toggle .segmented__item {
+    flex: 1;
+  }
+
+  .sales-filters {
+    flex: 1 1 100%;
+  }
+
+  .sales-filters .select-inline {
+    flex: 1;
+  }
+
+  .sales-filters .select-inline select {
+    flex: 1;
+  }
+
+  .sales-total__value {
+    font-size: 2.25rem;
+  }
+
+  .sales-kpis:not(.sales-kpis--secondary) {
+    --cols: 1;
+  }
+
+  .delta {
+    white-space: nowrap;
+  }
+
+  .book-filters .select-inline {
+    flex: 1 1 calc(50% - var(--space-2));
+  }
+
+  .book-filters .select-inline select {
+    flex: 1;
+  }
+
+  .tbl.tbl--stack.book-table tr {
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .tbl.tbl--stack.book-table td.book-doc {
+    grid-column: 1;
+    order: -2;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .book-table .book-doc__type {
+    margin-top: 0;
+  }
+
+  .tbl.tbl--stack.book-table td.book-fecha {
+    order: -1;
+    align-items: flex-end;
+    justify-content: center;
+    font-size: var(--text-xs);
+    color: var(--muted-fg);
+  }
+
+  .tbl--stack.book-table td.book-fecha::before {
+    content: none;
+  }
+
+  .tbl.tbl--stack.book-table td.tbl-main {
+    margin-bottom: var(--space-1);
+  }
+
+  .tbl.tbl--stack.book-table td.book-ufdia {
+    display: none;
+  }
+
+  .book-table .tbl-main,
+  .book-table .book-obra {
+    min-width: 0;
+  }
+
+  .sale-summary__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pager .btn {
+    padding: 0 var(--space-3);
+  }
+
+  .import-errors {
+    padding: 0 var(--space-4) var(--space-4);
+  }
+}

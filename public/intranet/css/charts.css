@@ -1,0 +1,143 @@
+.chart {
+  position: relative;
+  width: 100%;
+  min-height: var(--chart-h, 280px);
+}
+
+.chart[data-chart] {
+  height: var(--chart-h, 280px);
+}
+
+.chart.is-empty {
+  display: grid;
+  place-items: center;
+  background: var(--muted);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 10px,
+    rgba(0, 0, 0, 0.018) 10px 11px
+  );
+  border: 1px dashed var(--input);
+  border-radius: var(--radius-card);
+}
+
+.chart-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--muted-fg);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: center;
+}
+
+.chart-empty .icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.chart-tip {
+  min-width: 168px;
+  font-family: var(--font-sans, inherit);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip__title {
+  margin-bottom: 0.375rem;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-tip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  line-height: 1.7;
+}
+
+.chart-tip__row.is-strong {
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--border);
+}
+
+.chart-tip__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted-fg);
+  font-size: 12px;
+}
+
+.chart-tip__key i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.chart-tip__value {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart__summary {
+  margin-top: var(--space-2);
+  color: var(--muted-fg);
+  font-size: var(--text-xs);
+}
+
+.bar-chart {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) 9rem;
+  gap: var(--space-4);
+  align-items: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-row > span {
+  color: var(--muted-fg);
+}
+
+.bar-row > strong {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bar-track {
+  height: 1.25rem;
+  overflow: hidden;
+  background: var(--muted-2);
+  border-radius: 0.4rem;
+}
+
+.bar-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--ambar), var(--naranjo));
+  border-radius: 0.4rem;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+.bar-row:last-child .bar-track i {
+  background: var(--naranjo);
+}
+
+@media (max-width: 640px) {
+  .bar-row {
+    grid-template-columns: 2.5rem minmax(0, 1fr) 6.5rem;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+  }
+}

@@ -1,0 +1,117 @@
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("../fonts/plus-jakarta-sans-latin.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+
+  --canvas: #ecebe6;
+  --canvas-2: #e5e3dc;
+  --canvas-3: #dedbd2;
+  --panel: #f8f7f4;
+  --card: #ffffff;
+  --focal: #f5f1e8;
+  --focal-border: #e6d9bf;
+  --focal-muted: #ebe5d8;
+
+  --fg: #1a1a1a;
+  --fg-hover: #333333;
+  --on-solid: #ffffff;
+  --fg-2: #3a3936;
+  --muted-fg: #6f6d68;
+  --subtle-fg: #76736c; /* Contraste mínimo de 4,5:1 sobre --card. */
+
+  --muted: #ebe8e1;
+  --muted-2: #f3f1ec;
+  --border: #e2ded5;
+  --border-strong: #d4cfc3;
+  --input: #d9d5cb;
+
+  --naranjo: #f26b21;
+  --naranjo-hover: #dc5c15;
+  --naranjo-soft: #fde9dc;
+  --naranjo-ink: #b14a0f;
+  --naranjo-border: #f6cdb2;
+  --ambar: #f5a623;
+  --ambar-soft: #fdf0d6;
+  --grafito: #4a4a4a;
+  --gris: #8a877f;
+
+  --ok: #2e8b57;
+  --ok-soft: #e3f1e8;
+  --ok-text: #23774a; /* Variante para texto pequeño con contraste AA. */
+  --ok-ink: #1f5f3b;
+  --ok-border: #c4e0cd;
+  --warn: #d9a000;
+  --warn-soft: #fbf1d2;
+  --warn-ink: #8a6500;
+  --warn-border: #f0dc9f;
+  --bad: #d64545;
+  --bad-soft: #fbe5e3;
+  --bad-text: #c13a3a; /* Variante para texto pequeño. */
+  --bad-ink: #a93030;
+  --bad-border: #efc4c0;
+  --sky: #3b8fd1;
+  --sky-soft: #e2eff9;
+  --verde: #22a06b;
+  --verde-oscuro: #17734c;
+  --neutral-dot: #a8a59d;
+  --chart-previo: #b8b4aa;
+
+  --rubro-energia: var(--naranjo);
+  --rubro-industrial: #4a4a4a;
+  --rubro-comercial: var(--ambar);
+  --rubro-educacional: #8a877f;
+  --rubro-urbanizacion: #c9a27a;
+  --rubro-otros: #d9d5cb;
+
+  --font-sans: "Plus Jakarta Sans", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-sm: 0.4rem;
+  --radius-control: 0.6rem;
+  --radius-tile: 0.6rem;
+  --radius-card: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-full: 999px;
+
+  --control-h: 2.5rem;
+  --control-h-sm: 2rem;
+  --control-h-lg: 3rem;
+  --ring-focus: 0 0 0 3px rgba(245, 166, 35, 0.35);
+
+  --shadow-pop: 0 12px 32px -12px rgba(26, 26, 26, 0.22), 0 2px 6px rgba(26, 26, 26, 0.06);
+  --shadow-dialog: 0 32px 80px -24px rgba(26, 26, 26, 0.35), 0 4px 12px rgba(26, 26, 26, 0.08);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 700ms;
+
+  --sidebar-w: 16rem;
+  --shell-gap: 8px;
+  --grid-size: 28px;
+  --grid-line: rgba(0, 0, 0, 0.035);
+}
