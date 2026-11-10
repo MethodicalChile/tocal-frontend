@@ -1,4 +1,4 @@
-import { api, downloadPrivateFile } from '../../../lib/api';
+import { api, downloadPrivateFile } from '../../../lib/api.js';
 
 const uuid = value => {
   const result = String(value || '');

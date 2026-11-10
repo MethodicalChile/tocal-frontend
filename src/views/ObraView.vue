@@ -21,7 +21,8 @@ import {
 } from 'lucide-vue-next';
 
 import { api } from '../lib/api';
-import { state } from '../lib/state';
+import { state, can } from '../lib/state';
+import { documentsApi } from '../modules/administration/services/documentsApi';
 
 import {
   num,
@@ -54,6 +55,13 @@ const cargos = ref([]);
 
 const workforceLoading = ref(false);
 const workforceError = ref('');
+const obraCompliance = ref(null);
+const obraAlerts = ref([]);
+
+const workerComplianceMap = computed(() => {
+  const rows = obraCompliance.value?.trabajadores || [];
+  return new Map(rows.map(r => [String(r.trabajador_id), r]));
+});
 
 let requestVersion = 0;
 
@@ -385,6 +393,8 @@ async function load() {
   assignments.value = [];
   workers.value = [];
   cargos.value = [];
+  obraCompliance.value = null;
+  obraAlerts.value = [];
 
   error.value = '';
   workforceError.value = '';
@@ -401,6 +411,26 @@ async function load() {
     return;
   }
 
+  async function loadObraCompliance() {
+    if (!currentEmpresa || !currentObra || !(can('documentos.ver') || can('obras.ver') || can('informes.ver'))) {
+      return;
+    }
+    try {
+      const [comp, alResp] = await Promise.all([
+        documentsApi.complianceDashboard(currentEmpresa, { obra_id: currentObra }),
+        documentsApi.alerts(currentEmpresa, { obra_id: currentObra, leida: false }).catch(() => ({ results: [] })),
+      ]);
+      if (version !== requestVersion) return;
+      obraCompliance.value = comp;
+      obraAlerts.value = alResp.results || [];
+    } catch {
+      if (version === requestVersion) {
+        obraCompliance.value = null;
+        obraAlerts.value = [];
+      }
+    }
+  }
+
   // Se cargan independientemente para conservar el
   // resumen aunque el módulo laboral no esté autorizado.
   await Promise.all([
@@ -410,6 +440,7 @@ async function load() {
       currentEmpresa,
       currentObra
     ),
+    loadObraCompliance(),
   ]);
 }
 
@@ -720,6 +751,10 @@ onBeforeUnmount(() => {
                   <th style="padding:10px">
                     Estado
                   </th>
+
+                  <th style="padding:10px">
+                    Cumplimiento / Prevención
+                  </th>
                 </tr>
               </thead>
 
@@ -729,7 +764,13 @@ onBeforeUnmount(() => {
                   :key="item.id"
                 >
                   <td style="padding:10px">
-                    {{ item.nombreTrabajador }}
+                    <RouterLink
+                      v-if="item.workerId"
+                      :to="`/administracion/trabajadores/${item.workerId}`"
+                    >
+                      <strong>{{ item.nombreTrabajador }}</strong>
+                    </RouterLink>
+                    <span v-else>{{ item.nombreTrabajador }}</span>
                   </td>
 
                   <td style="padding:10px">
@@ -746,6 +787,14 @@ onBeforeUnmount(() => {
 
                   <td style="padding:10px">
                     Vigente
+                  </td>
+
+                  <td style="padding:10px">
+                    <template v-if="workerComplianceMap.get(String(item.workerId))">
+                      <strong>{{ workerComplianceMap.get(String(item.workerId)).porcentaje_cumplimiento }}%</strong>
+                      · {{ workerComplianceMap.get(String(item.workerId)).estado_preventivo_label }}
+                    </template>
+                    <span v-else class="muted">—</span>
                   </td>
                 </tr>
               </tbody>
@@ -773,6 +822,69 @@ onBeforeUnmount(() => {
           </div>
 
         </template>
+      </PageCard>
+    </div>
+
+    <!-- =====================================================
+         T10.3: DASHBOARD DE CUMPLIMIENTO POR OBRA
+    ====================================================== -->
+
+    <div
+      v-if="obraCompliance"
+      style="margin-bottom:24px"
+    >
+      <PageCard
+        title="Cumplimiento documental, prevención y equipos en la obra"
+        description="Estado operativo de documentos obligatorios, capacitaciones, maquinaria asignada y alertas de vencimiento"
+      >
+        <div
+          class="stat-grid cols-4"
+          style="margin-bottom:18px"
+        >
+          <StatTile
+            label="Cumplimiento trabajadores"
+            :value="`${obraCompliance.kpis?.porcentaje_cumplimiento_trabajadores ?? 0}%`"
+            :hint="`${obraCompliance.kpis?.trabajadores_habilitados_doc ?? 0} de ${obraCompliance.kpis?.trabajadores_evaluados ?? 0} al día`"
+            :tone="(obraCompliance.kpis?.porcentaje_cumplimiento_trabajadores ?? 0) >= 85 ? 'ok' : 'warn'"
+          />
+          <StatTile
+            label="Requisitos faltantes / vencidos"
+            :value="`${(obraCompliance.kpis?.documentos_faltantes ?? 0) + (obraCompliance.kpis?.documentos_vencidos ?? 0)}`"
+            :hint="`${obraCompliance.kpis?.documentos_faltantes ?? 0} faltantes · ${obraCompliance.kpis?.documentos_vencidos ?? 0} vencidos`"
+            :tone="((obraCompliance.kpis?.documentos_faltantes ?? 0) + (obraCompliance.kpis?.documentos_vencidos ?? 0)) > 0 ? 'warn' : 'ok'"
+          />
+          <StatTile
+            label="Capacitaciones pendientes"
+            :value="`${obraCompliance.kpis?.capacitaciones_pendientes ?? 0}`"
+            :hint="`${obraCompliance.kpis?.trabajadores_habilitados_prev ?? 0} habilitados preventivamente`"
+            :tone="(obraCompliance.kpis?.capacitaciones_pendientes ?? 0) > 0 ? 'warn' : 'ok'"
+          />
+          <StatTile
+            label="Equipos con doc. vencida"
+            :value="`${obraCompliance.kpis?.equipos_con_vencidos ?? 0}`"
+            :hint="`${obraCompliance.kpis?.equipos_habilitados ?? 0} de ${obraCompliance.kpis?.equipos_activos ?? 0} equipos habilitados`"
+            :tone="(obraCompliance.kpis?.equipos_con_vencidos ?? 0) > 0 ? 'warn' : 'ok'"
+          />
+        </div>
+
+        <div
+          v-if="obraAlerts.length"
+          style="margin-top:12px"
+        >
+          <h3 style="margin-bottom:8px">Alertas documentales activas en la obra ({{ obraAlerts.length }})</h3>
+          <ul class="alert-list">
+            <li
+              v-for="al in obraAlerts.slice(0, 6)"
+              :key="al.id"
+              class="alert-item"
+            >
+              <div>
+                <strong>{{ al.nivel === 'vencido' ? 'Vencido' : 'Próximo a vencer' }} · {{ al.entidad_tipo }}</strong>
+                <p>{{ al.mensaje }} (Vence: {{ formatDate(al.fecha_vencimiento) }})</p>
+              </div>
+            </li>
+          </ul>
+        </div>
       </PageCard>
     </div>
 

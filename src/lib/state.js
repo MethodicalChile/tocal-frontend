@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
-import { api } from './api';
-import { authorizationApi } from '../modules/administration/services/authorizationApi';
+import { api } from './api.js';
+import { authorizationApi } from '../modules/administration/services/authorizationApi.js';
 
 const STORAGE_KEY = 'tocal.activeCompany';
 const empty = () => ({ user: null, obras: [], modules: [], loaded: false, alert: '', busy: false,

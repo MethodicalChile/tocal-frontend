@@ -1,4 +1,4 @@
-import { api } from '../../../lib/api';
+import { api } from '../../../lib/api.js';
 
 function scoped(empresaId, suffix = '') {
   if (!/^[0-9a-f-]{36}$/i.test(String(empresaId || ''))) throw new Error('Configura VITE_TOCAL_EMPRESA_ID con el UUID de la empresa');
