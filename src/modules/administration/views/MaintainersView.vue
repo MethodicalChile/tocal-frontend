@@ -1,11 +1,13 @@
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { state, can } from '../../../lib/state';
 import { documentsApi } from '../services/documentsApi';
 import { workforceApi } from '../services/workforceApi';
 import { worksApi } from '../services/worksApi';
 import RequirementsMaintainer from './RequirementsMaintainer.vue';
 
+const route = useRoute();
 const companyId = computed(() => state.activeCompanyId);
 const canCreate = computed(() => can('tipos_documentales.crear') || can('documentos.crear'));
 const canEdit = computed(() => can('tipos_documentales.editar') || can('documentos.editar'));
@@ -262,6 +264,21 @@ async function toggle(item) {
   } catch(e) { if (companyId.value === id) error.value = e.message; }
   finally { saving.value = false; }
 }
+async function seedBaseCatalogs() {
+  if (!companyId.value || saving.value) return;
+  saving.value = true; error.value = ''; info.value = '';
+  try {
+    const res = await documentsApi.seedTocalCatalogs(companyId.value);
+    await load();
+    if (activeTab.value === 'capacitaciones' || activeTab.value === 'epp') await loadPreventionCatalogs();
+    info.value = `Catálogos TOCAL sincronizados: +${res.cargos_creados || 0} cargos, +${res.tipos_documentales_creados || 0} tipos documentales, +${res.requisitos_documentales_creados || 0} requisitos, +${res.tipos_capacitacion_creados || 0} capacitaciones y +${res.categorias_epp_creadas || 0} categorías de EPP.`;
+  } catch (e) {
+    error.value = e.message || 'No se pudieron cargar los catálogos base de TOCAL.';
+  } finally {
+    saving.value = false;
+  }
+}
+
 watch(companyId, () => {
   newItem();
   load();
@@ -273,12 +290,25 @@ watch(activeTab, tab => {
   if (tab === 'alertas') loadAlertsSection();
   if (tab === 'capacitaciones' || tab === 'epp') loadPreventionCatalogs();
 });
+watch(() => route.query.tab, qTab => {
+  if (qTab && ['tipos', 'requisitos', 'capacitaciones', 'epp', 'alertas'].includes(String(qTab))) {
+    activeTab.value = String(qTab);
+  }
+}, { immediate: true });
 onMounted(load);
 </script>
 
 <template>
   <section class="stack" style="max-width:1100px">
-    <header><h1>Ajustes y mantenedores</h1><p>Administra los catálogos documentales, requisitos, prevención y parámetros operacionales de la empresa seleccionada.</p></header>
+    <header style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h1>Ajustes y mantenedores</h1>
+        <p>Administra los catálogos documentales, requisitos, prevención y parámetros operacionales de la empresa seleccionada.</p>
+      </div>
+      <button v-if="canCreate" type="button" class="btn btn-primary" :disabled="saving || loading" @click="seedBaseCatalogs">
+        Cargar catálogos base TOCAL
+      </button>
+    </header>
     <div class="maint-layout">
       <aside class="card maint-aside">
         <h2>Mantenedores</h2>

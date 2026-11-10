@@ -7,10 +7,24 @@ const companyId = computed(() => state.activeCompanyId);
 const tabs = [['company','Empresa'], ['roles','Roles y permisos'], ['members','Miembros'], ['assignments','Asignaciones'], ['audit','Auditoría']];
 const activeTab = ref('roles');
 const loading = ref(false), working = ref(false), error = ref(''), message = ref('');
-const allowed = ref(false), canManage = ref(false), canEditCompany = ref(false);
+const allowed = ref(false), canManage = ref(false), canViewAudit = ref(false), canEditCompany = ref(false);
 const companyInfo = ref(null);
 const companyForm = ref({ nombre: '', rut: '', activa: true });
 const roles = ref([]), permissions = ref([]), members = ref([]), assignments = ref([]), auditLogs = ref([]);
+const auditSearch = ref(''), auditEntityFilter = ref('');
+const filteredAuditLogs = computed(() => {
+  const q = auditSearch.value.trim().toLowerCase();
+  const ent = auditEntityFilter.value.trim().toLowerCase();
+  return auditLogs.value.filter(log => {
+    if (ent && String(log.entidad || '').toLowerCase() !== ent) return false;
+    if (q) {
+      const hay = `${log.accion || ''} ${log.entidad || ''} ${log.actor_username || ''} ${JSON.stringify(log.detalle || {})}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+});
+const auditEntities = computed(() => [...new Set(auditLogs.value.map(l => l.entidad).filter(Boolean))].sort());
 const selectedRoleId = ref(''), selectedPermissions = ref([]), expandedMemberId = ref(null);
 const newRole = ref({ codigo: '', nombre: '', descripcion: '' });
 const newMemberId = ref('');
@@ -27,8 +41,9 @@ async function load() {
   try {
     const rights = await auth.myPermissions(companyId.value);
     const p = rights.permissions || [];
-    allowed.value = p.includes('roles.ver') || p.includes('roles.administrar') || p.includes('empresas.ver');
+    allowed.value = p.includes('roles.ver') || p.includes('roles.administrar') || p.includes('empresas.ver') || p.includes('auditoria.ver');
     canManage.value = p.includes('roles.administrar');
+    canViewAudit.value = p.includes('auditoria.ver') || p.includes('roles.administrar');
     canEditCompany.value = p.includes('empresas.editar') || p.includes('roles.administrar');
     if (!allowed.value) { error.value = 'No tienes permisos para consultar esta sección.'; return; }
     try {
@@ -40,12 +55,15 @@ async function load() {
     roles.value = roleRes.results || []; permissions.value = permRes.results || [];
     if (selectedRoleId.value && roles.value.some(r => r.id === selectedRoleId.value)) selectRole(selectedRoleId.value);
     if (canManage.value) {
-      const [mRes, aRes, logRes] = await Promise.all([
+      const [mRes, aRes] = await Promise.all([
         auth.members(companyId.value),
         auth.assignments(companyId.value),
-        auth.auditLogs(companyId.value, { limit: 60 }).catch(() => ({ results: [] })),
       ]);
-      members.value = mRes.results || []; assignments.value = aRes.results || []; auditLogs.value = logRes.results || [];
+      members.value = mRes.results || []; assignments.value = aRes.results || [];
+    }
+    if (canViewAudit.value) {
+      const logRes = await auth.auditLogs(companyId.value, { limit: 100 }).catch(() => ({ results: [] }));
+      auditLogs.value = logRes.results || [];
     }
   } catch (e) { showError(e); } finally { loading.value = false; }
 }
@@ -102,7 +120,7 @@ watch(companyId, () => { roles.value=[]; permissions.value=[]; members.value=[];
     <p v-if="loading">Cargando información…</p>
     <template v-if="allowed && !loading">
       <nav class="authorization-admin__tabs" aria-label="Administrar acceso">
-        <button v-for="[key,label] in tabs" :key="key" v-show="canManage || key === 'roles' || key === 'company'" type="button" class="btn" :class="activeTab === key ? 'btn-primary' : 'btn-ghost'" @click="activeTab=key">{{ label }}</button>
+        <button v-for="[key,label] in tabs" :key="key" v-show="canManage || key === 'roles' || key === 'company' || (key === 'audit' && canViewAudit)" type="button" class="btn" :class="activeTab === key ? 'btn-primary' : 'btn-ghost'" @click="activeTab=key">{{ label }}</button>
       </nav>
       <section v-if="activeTab === 'company'" class="card authorization-admin__pane">
         <h2>Información empresarial</h2>
@@ -191,19 +209,31 @@ watch(companyId, () => { roles.value=[]; permissions.value=[]; members.value=[];
           <tr v-for="a in assignments" :key="a.id"><td>{{ usernames[String(a.usuario_id)] || a.usuario_id }}</td><td>{{ a.rol }}</td><td>{{ a.obra_id || 'Empresa completa' }}</td><td>{{ a.activa ? 'Activa' : 'Revocada' }}</td><td><button v-if="a.activa" class="btn btn-ghost" type="button" :disabled="working" @click="revoke(a)">Revocar</button></td></tr>
         </tbody></table></div>
       </section>
-      <section v-if="activeTab === 'audit' && canManage" class="card authorization-admin__pane">
-        <h2>Auditoría de modificaciones</h2>
-        <p v-if="!auditLogs.length">No hay eventos registrados.</p>
+      <section v-if="activeTab === 'audit' && canViewAudit" class="card authorization-admin__pane">
+        <h2>Auditoría de seguridad y operaciones</h2>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
+          <label style="flex:1;min-width:200px">Buscar acción, actor o detalle
+            <input v-model.trim="auditSearch" type="search" placeholder="Ej: documentos.aprobar, rol, equipo…" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:7px" />
+          </label>
+          <label style="min-width:180px">Entidad
+            <select v-model="auditEntityFilter" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:7px">
+              <option value="">Todas</option>
+              <option v-for="ent in auditEntities" :key="ent" :value="ent">{{ ent }}</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="!filteredAuditLogs.length">No hay eventos registrados para los filtros seleccionados.</p>
         <div v-else class="authorization-admin__scroll">
           <table class="authorization-admin__table">
-            <thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Entidad</th><th>ID</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Entidad</th><th>ID</th><th>Detalle</th></tr></thead>
             <tbody>
-              <tr v-for="log in auditLogs" :key="log.id">
+              <tr v-for="log in filteredAuditLogs" :key="log.id">
                 <td>{{ String(log.creado_en || '').slice(0, 19).replace('T', ' ') }}</td>
                 <td>{{ log.actor_username || log.actor_id || 'Sistema' }}</td>
                 <td><code>{{ log.accion }}</code></td>
                 <td>{{ log.entidad }}</td>
                 <td><code>{{ log.entidad_id }}</code></td>
+                <td><small>{{ log.detalle && Object.keys(log.detalle).length ? JSON.stringify(log.detalle) : '—' }}</small></td>
               </tr>
             </tbody>
           </table>

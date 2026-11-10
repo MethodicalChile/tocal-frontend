@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   Users,
   Settings,
+  Bell,
 } from 'lucide-vue-next';
 
 import {
@@ -41,6 +42,7 @@ import {
 } from '../lib/state';
 
 import { api } from '../lib/api';
+import { documentsApi } from '../modules/administration/services/documentsApi';
 
 
 import { obraPath } from '../lib/format';
@@ -59,6 +61,25 @@ const collapsed = ref(
 const mobile = ref(false);
 const search = ref('');
 const searchOpen = ref(false);
+const unreadAlertsCount = ref(0);
+
+async function refreshAlertsBadge() {
+  const empId = state.activeCompanyId;
+  if (!empId || !state.user || !(can('alertas.ver') || can('documentos.ver'))) {
+    unreadAlertsCount.value = 0;
+    return;
+  }
+  try {
+    const res = await documentsApi.alerts(empId, { leida: false });
+    unreadAlertsCount.value = Number(res?.resumen?.no_leidas ?? (res?.results || []).length ?? 0);
+  } catch {
+    unreadAlertsCount.value = 0;
+  }
+}
+
+watch(() => [state.activeCompanyId, state.user, route.path], () => {
+  refreshAlertsBadge();
+}, { immediate: true });
 
 const title = computed(
   () => route.meta.title || 'Panel general'
@@ -630,6 +651,24 @@ onBeforeUnmount(() => {
               Ctrl K
             </kbd>
           </button>
+
+          <!-- ALERTAS DE VENCIMIENTO -->
+          <RouterLink
+            v-if="canViewSettings"
+            to="/administracion/ajustes?tab=alertas"
+            class="btn btn-ghost btn-sm"
+            style="position:relative;display:inline-flex;align-items:center;gap:6px"
+            title="Alertas de vencimiento documental"
+            aria-label="Alertas de vencimiento documental"
+          >
+            <Bell :size="16" />
+            <span
+              v-if="unreadAlertsCount > 0"
+              style="background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:999px"
+            >
+              {{ unreadAlertsCount }}
+            </span>
+          </RouterLink>
 
           <!-- FECHA -->
           <span class="topbar__date">

@@ -140,4 +140,5 @@ export const documentsApi = {
     const query = qs.toString();
     return downloadPrivateFile(`${root(empresaId)}/exportar-cumplimiento/${query ? `?${query}` : ''}`, 'cumplimiento_tocal.csv');
   },
+  seedTocalCatalogs: empresaId => api.post(`${root(empresaId)}/sembrar-catalogos-tocal/`, {}),
 };
