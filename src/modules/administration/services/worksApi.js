@@ -8,6 +8,7 @@ const endpoint = (obraId = null) => {
 };
 export const worksApi = {
   list: () => api.get(endpoint()),
+  listByCompany: () => api.get(endpoint()),
   detail: (obraId) => api.get(endpoint(obraId)),
   create: (values) => api.post(endpoint(), values),
   update: (obraId, values) => api.patch(endpoint(obraId), values),

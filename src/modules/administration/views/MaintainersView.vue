@@ -89,8 +89,8 @@ async function loadPreventionCatalogs() {
     trainingTypes.value = tTypes;
     trainingReqs.value = tReqs;
     eppCategories.value = eppCats;
-    cargos.value = cargosResp.results || [];
-    obras.value = obrasResp.results || [];
+    cargos.value = Array.isArray(cargosResp) ? cargosResp : (cargosResp?.results || []);
+    obras.value = Array.isArray(obrasResp) ? obrasResp : (obrasResp?.results || []);
   } catch (e) {
     error.value = e.message || 'No se pudieron cargar los catálogos de prevención.';
   } finally {
@@ -320,6 +320,21 @@ onMounted(load);
       </aside>
 
       <div v-if="activeTab==='tipos'" class="stack" style="min-width:0">
+        <details v-if="canCreate || (canEdit && editing)" class="create-drawer" :open="Boolean(editing) || undefined">
+          <summary class="create-drawer__trigger">{{ editing ? 'Editar tipo documental' : 'Crear nuevo tipo documental' }}</summary>
+          <form @submit.prevent="save">
+            <div class="maint-grid">
+              <label>Código <input v-model.trim="form.codigo" required maxlength="64" pattern="[a-z0-9]+(?:[-_][a-z0-9]+)*" :disabled="!!editing" placeholder="contrato-trabajo" /></label>
+              <label>Nombre <input v-model.trim="form.nombre" required maxlength="180" placeholder="Contrato de trabajo" /></label>
+              <label>Categoría <select v-model="form.categoria" :disabled="!!editing"><option value="trabajador">Trabajador</option><option value="empresa">Empresa</option><option value="equipo">Equipo</option></select></label>
+              <label>Descripción <input v-model="form.descripcion" maxlength="500" placeholder="Descripción opcional" /></label>
+            </div>
+            <label class="maint-check"><input v-model="form.requiere_vencimiento" type="checkbox" /> Requiere fecha de vencimiento</label>
+            <label class="maint-check"><input v-model="form.activo" type="checkbox" /> Activo</label>
+            <div class="maint-actions"><button class="btn" type="submit" :disabled="saving">{{ saving ? 'Guardando…' : (editing ? 'Guardar cambios' : 'Crear tipo documental') }}</button><button v-if="editing" type="button" class="btn btn-ghost" @click="newItem">Cancelar</button></div>
+            <p class="maint-muted" style="margin-top:8px">Los códigos y las categorías no se cambian después de crear un tipo para proteger los documentos existentes.</p>
+          </form>
+        </details>
         <div class="card maint-content">
           <h2>Tipos de documento</h2>
           <p class="maint-muted">Catálogo utilizado por los expedientes de trabajadores y los documentos de empresa y equipos.</p>
@@ -345,24 +360,53 @@ onMounted(load);
             </tr>
           </tbody></table></div>
         </div>
-        <form v-if="canCreate || (canEdit && editing)" class="card maint-content" @submit.prevent="save">
-          <h2>{{ editing ? 'Editar tipo documental' : 'Nuevo tipo documental' }}</h2>
-          <div class="maint-grid">
-            <label>Código <input v-model.trim="form.codigo" required maxlength="64" pattern="[a-z0-9]+(?:[-_][a-z0-9]+)*" :disabled="!!editing" placeholder="contrato-trabajo" /></label>
-            <label>Nombre <input v-model.trim="form.nombre" required maxlength="180" placeholder="Contrato de trabajo" /></label>
-            <label>Categoría <select v-model="form.categoria" :disabled="!!editing"><option value="trabajador">Trabajador</option><option value="empresa">Empresa</option><option value="equipo">Equipo</option></select></label>
-            <label>Descripción <input v-model="form.descripcion" maxlength="500" placeholder="Descripción opcional" /></label>
-          </div>
-          <label class="maint-check"><input v-model="form.requiere_vencimiento" type="checkbox" /> Requiere fecha de vencimiento</label>
-          <label class="maint-check"><input v-model="form.activo" type="checkbox" /> Activo</label>
-          <div class="maint-actions"><button class="btn" type="submit" :disabled="saving">{{ saving ? 'Guardando…' : (editing ? 'Guardar cambios' : 'Crear tipo documental') }}</button><button v-if="editing" type="button" class="btn btn-ghost" @click="newItem">Cancelar</button></div>
-          <p class="maint-muted">Los códigos y las categorías no se cambian después de crear un tipo para proteger los documentos existentes.</p>
-        </form>
       </div>
 
       <RequirementsMaintainer v-else-if="activeTab==='requisitos'" :empresa-id="companyId" :can-create="canCreate" :can-edit="canEdit" />
 
       <div v-else-if="activeTab==='capacitaciones'" class="stack" style="min-width:0">
+        <div v-if="canCreate" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+          <details class="create-drawer" style="flex:1;min-width:260px">
+            <summary class="create-drawer__trigger">Crear nuevo tipo de capacitación</summary>
+            <form @submit.prevent="saveTrainingType">
+              <div class="maint-grid">
+                <label>Código <input v-model.trim="trainingTypeForm.codigo" required placeholder="odi-general" /></label>
+                <label>Nombre <input v-model.trim="trainingTypeForm.nombre" required placeholder="Inducción ODI General" /></label>
+                <label>Vigencia en meses (opcional) <input v-model="trainingTypeForm.vigencia_meses" type="number" min="1" placeholder="12" /></label>
+                <label>Horas de duración <input v-model="trainingTypeForm.horas_duracion" type="number" step="0.5" min="0.5" required /></label>
+              </div>
+              <button class="btn" type="submit" :disabled="saving">Crear tipo de capacitación</button>
+            </form>
+          </details>
+
+          <details v-if="trainingTypes.length" class="create-drawer create-drawer--inline" style="flex:1;min-width:260px">
+            <summary class="create-drawer__trigger">Asociar nuevo requisito de capacitación</summary>
+            <form @submit.prevent="saveTrainingReq">
+              <div class="maint-grid">
+                <label>Capacitación
+                  <select v-model="trainingReqForm.tipo_capacitacion_id" required>
+                    <option value="">Selecciona…</option>
+                    <option v-for="tt in trainingTypes" :key="tt.id" :value="tt.id">{{ tt.nombre }}</option>
+                  </select>
+                </label>
+                <label>Cargo (opcional)
+                  <select v-model="trainingReqForm.cargo_id">
+                    <option value="">Todos los cargos</option>
+                    <option v-for="c in cargos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+                  </select>
+                </label>
+                <label>Obra (opcional)
+                  <select v-model="trainingReqForm.obra_id">
+                    <option value="">Todas las obras</option>
+                    <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+                  </select>
+                </label>
+              </div>
+              <button class="btn" type="submit" :disabled="saving">Guardar requisito de capacitación</button>
+            </form>
+          </details>
+        </div>
+
         <div class="card maint-content">
           <h2>Catálogo de capacitaciones y charlas</h2>
           <p class="maint-muted">Define cursos, inducciones ODI y charlas preventivas junto con su vigencia y horas.</p>
@@ -382,17 +426,6 @@ onMounted(load);
           <p v-else class="maint-muted">No hay tipos de capacitación registrados todavía.</p>
         </div>
 
-        <form v-if="canCreate" class="card maint-content" @submit.prevent="saveTrainingType">
-          <h2>Nuevo tipo de capacitación</h2>
-          <div class="maint-grid">
-            <label>Código <input v-model.trim="trainingTypeForm.codigo" required placeholder="odi-general" /></label>
-            <label>Nombre <input v-model.trim="trainingTypeForm.nombre" required placeholder="Inducción ODI General" /></label>
-            <label>Vigencia en meses (opcional) <input v-model="trainingTypeForm.vigencia_meses" type="number" min="1" placeholder="12" /></label>
-            <label>Horas de duración <input v-model="trainingTypeForm.horas_duracion" type="number" step="0.5" min="0.5" required /></label>
-          </div>
-          <button class="btn" type="submit" :disabled="saving">Crear tipo de capacitación</button>
-        </form>
-
         <div class="card maint-content">
           <h2>Requisitos de capacitación por cargo y obra</h2>
           <div v-if="trainingReqs.length" class="maint-table-wrap">
@@ -409,34 +442,22 @@ onMounted(load);
             </table>
           </div>
           <p v-else class="maint-muted">No hay requisitos de capacitación configurados.</p>
-          <form v-if="canCreate && trainingTypes.length" style="margin-top:16px" @submit.prevent="saveTrainingReq">
-            <h3>Asociar requisito de capacitación</h3>
-            <div class="maint-grid">
-              <label>Capacitación
-                <select v-model="trainingReqForm.tipo_capacitacion_id" required>
-                  <option value="">Selecciona…</option>
-                  <option v-for="tt in trainingTypes" :key="tt.id" :value="tt.id">{{ tt.nombre }}</option>
-                </select>
-              </label>
-              <label>Cargo (opcional)
-                <select v-model="trainingReqForm.cargo_id">
-                  <option value="">Todos los cargos</option>
-                  <option v-for="c in cargos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
-                </select>
-              </label>
-              <label>Obra (opcional)
-                <select v-model="trainingReqForm.obra_id">
-                  <option value="">Todas las obras</option>
-                  <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
-                </select>
-              </label>
-            </div>
-            <button class="btn" type="submit" :disabled="saving">Guardar requisito de capacitación</button>
-          </form>
         </div>
       </div>
 
       <div v-else-if="activeTab==='epp'" class="stack" style="min-width:0">
+        <details v-if="canCreate" class="create-drawer">
+          <summary class="create-drawer__trigger">Crear nueva categoría de EPP</summary>
+          <form @submit.prevent="saveEppCategory">
+            <div class="maint-grid">
+              <label>Código <input v-model.trim="eppCategoryForm.codigo" required placeholder="casco-seguridad" /></label>
+              <label>Nombre <input v-model.trim="eppCategoryForm.nombre" required placeholder="Casco de seguridad dieléctrico" /></label>
+              <label>Vida útil referencial (días) <input v-model="eppCategoryForm.vida_util_dias" type="number" min="1" placeholder="180" /></label>
+              <label>Descripción <input v-model="eppCategoryForm.descripcion" placeholder="Observaciones técnicas" /></label>
+            </div>
+            <button class="btn" type="submit" :disabled="saving">Crear categoría de EPP</button>
+          </form>
+        </details>
         <div class="card maint-content">
           <h2>Categorías de Elementos de Protección Personal (EPP)</h2>
           <p class="maint-muted">Catálogo de EPP utilizado para registrar entregas y controlar reposiciones.</p>
@@ -454,16 +475,6 @@ onMounted(load);
           </div>
           <p v-else class="maint-muted">No hay categorías de EPP registradas todavía.</p>
         </div>
-        <form v-if="canCreate" class="card maint-content" @submit.prevent="saveEppCategory">
-          <h2>Nueva categoría de EPP</h2>
-          <div class="maint-grid">
-            <label>Código <input v-model.trim="eppCategoryForm.codigo" required placeholder="casco-seguridad" /></label>
-            <label>Nombre <input v-model.trim="eppCategoryForm.nombre" required placeholder="Casco de seguridad dieléctrico" /></label>
-            <label>Vida útil referencial (días) <input v-model="eppCategoryForm.vida_util_dias" type="number" min="1" placeholder="180" /></label>
-            <label>Descripción <input v-model="eppCategoryForm.descripcion" placeholder="Observaciones técnicas" /></label>
-          </div>
-          <button class="btn" type="submit" :disabled="saving">Crear categoría de EPP</button>
-        </form>
       </div>
 
       <div v-else-if="activeTab==='alertas'" class="stack" style="min-width:0">

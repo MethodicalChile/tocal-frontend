@@ -301,7 +301,39 @@ async function review(doc, nextStatus) {
       </section>
 
       <template v-if="!busy">
-        <h3>Documentos registrados</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:6px">
+          <h3 style="margin:0">Documentos registrados ({{ docs.length }})</h3>
+        </div>
+        <details v-if="canCreate" class="create-drawer" style="margin-bottom:10px">
+          <summary class="create-drawer__trigger">Registrar nuevo documento al trabajador</summary>
+          <form class="stack-sm" @submit.prevent="create">
+            <div class="form-grid">
+              <label class="field">Tipo documental
+                <select v-model="form.tipo_documento_id" required :disabled="Boolean(working)">
+                  <option value="">Selecciona un tipo</option>
+                  <option v-for="type in workerTypes" :key="type.id" :value="type.id">{{ type.nombre }}</option>
+                </select>
+              </label>
+              <label class="field">Obra (opcional)
+                <select v-model="form.obra_id" :disabled="Boolean(working)">
+                  <option value="">General de la empresa</option>
+                  <option v-for="obra in obras" :key="obra.obra_id" :value="obra.obra_id">{{ obra.obra_nombre || obra.obra_id }}</option>
+                </select>
+              </label>
+              <label class="field">Fecha de emisión
+                <input v-model="form.fecha_emision" type="date" :disabled="Boolean(working)" />
+              </label>
+              <label class="field">Fecha de vencimiento {{ selectedType?.requiere_vencimiento ? '(obligatoria)' : '(opcional)' }}
+                <input v-model="form.fecha_vencimiento" type="date" :required="Boolean(selectedType?.requiere_vencimiento)" :disabled="Boolean(working)" />
+              </label>
+              <label class="field field--wide">Observaciones
+                <textarea v-model="form.observaciones" maxlength="2000" rows="2" :disabled="Boolean(working)" />
+              </label>
+            </div>
+            <p v-if="!workerTypes.length">Primero configura un tipo documental activo de categoría trabajador.</p>
+            <button class="btn btn-primary" type="submit" :disabled="Boolean(working) || !workerTypes.length">Registrar documento</button>
+          </form>
+        </details>
         <p v-if="!docs.length">No hay documentos registrados para este trabajador.</p>
         <div v-for="doc in docs" :key="doc.id" class="card stack-sm" style="padding:16px">
           <div class="page-actions" style="justify-content:space-between">
@@ -388,35 +420,6 @@ async function review(doc, nextStatus) {
             </div>
           </div>
         </div>
-
-        <form v-if="canCreate" class="stack-sm" @submit.prevent="create">
-          <h3>Registrar documento</h3>
-          <div class="form-grid">
-            <label class="field">Tipo documental
-              <select v-model="form.tipo_documento_id" required :disabled="Boolean(working)">
-                <option value="">Selecciona un tipo</option>
-                <option v-for="type in workerTypes" :key="type.id" :value="type.id">{{ type.nombre }}</option>
-              </select>
-            </label>
-            <label class="field">Obra (opcional)
-              <select v-model="form.obra_id" :disabled="Boolean(working)">
-                <option value="">General de la empresa</option>
-                <option v-for="obra in obras" :key="obra.obra_id" :value="obra.obra_id">{{ obra.obra_nombre || obra.obra_id }}</option>
-              </select>
-            </label>
-            <label class="field">Fecha de emisión
-              <input v-model="form.fecha_emision" type="date" :disabled="Boolean(working)" />
-            </label>
-            <label class="field">Fecha de vencimiento {{ selectedType?.requiere_vencimiento ? '(obligatoria)' : '(opcional)' }}
-              <input v-model="form.fecha_vencimiento" type="date" :required="Boolean(selectedType?.requiere_vencimiento)" :disabled="Boolean(working)" />
-            </label>
-            <label class="field field--wide">Observaciones
-              <textarea v-model="form.observaciones" maxlength="2000" rows="2" :disabled="Boolean(working)" />
-            </label>
-          </div>
-          <p v-if="!workerTypes.length">Primero configura un tipo documental activo de categoría trabajador.</p>
-          <button class="btn btn-primary" type="submit" :disabled="Boolean(working) || !workerTypes.length">Registrar documento</button>
-        </form>
       </template>
     </template>
   </div>

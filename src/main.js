@@ -62,7 +62,24 @@ const routes = [
     component: WorksAdmin,
     meta: { title: 'Administrar obras', permission: 'obras.ver' },
   },
-  { path: '/administracion/empresa-equipos', name: 'administracion-empresa-equipos', component: CompanyAndEquipment, meta: { title: 'Empresa y equipos', permission: 'documentos.ver' } },
+  {
+    path: '/administracion/empresa-equipos',
+    name: 'administracion-empresa-equipos',
+    component: CompanyAndEquipment,
+    meta: { title: 'Empresa y equipos', permission: 'documentos.ver', viewMode: 'empresa-equipos' },
+  },
+  {
+    path: '/administracion/consulta-terreno',
+    name: 'administracion-consulta-terreno',
+    component: CompanyAndEquipment,
+    meta: { title: 'Consulta en terreno', permission: 'documentos.ver', viewMode: 'terreno' },
+  },
+  {
+    path: '/administracion/dossier-fiscalizacion',
+    name: 'administracion-dossier-fiscalizacion',
+    component: CompanyAndEquipment,
+    meta: { title: 'Dossier FUF / DS 44', permission: 'documentos.ver', viewMode: 'dossier' },
+  },
   { path: '/administracion/ajustes', name: 'administracion-ajustes', component: Maintainers, meta: { title: 'Ajustes y mantenedores', permission: 'documentos.ver' } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

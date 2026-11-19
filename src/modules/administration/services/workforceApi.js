@@ -23,6 +23,7 @@ export const workforceApi = {
     return list(await api.get(`${company(empresaId)}/trabajadores${suffix}`));
   },
   createTrabajador: (empresaId, payload) => api.post(`${company(empresaId)}/trabajadores`, payload),
+  bulkCreateTrabajadores: (empresaId, payload) => api.post(`${company(empresaId)}/trabajadores/carga-masiva`, payload),
   updateTrabajador: (empresaId, trabajadorId, payload) => api.patch(`${company(empresaId)}/trabajadores/${id(trabajadorId)}`, payload),
   deactivateTrabajador: (empresaId, trabajadorId) => api.del(`${company(empresaId)}/trabajadores/${id(trabajadorId)}`),
   asignaciones: async (empresaId, obraId) => list(await api.get(`${company(empresaId)}/obras/${id(obraId)}/trabajadores/asignaciones`)),

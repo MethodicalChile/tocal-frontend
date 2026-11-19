@@ -457,6 +457,10 @@ watch(
   { immediate: true }
 );
 
+function printObraExecutiveSheet() {
+  window.print();
+}
+
 onBeforeUnmount(() => {
   requestVersion++;
 });
@@ -476,6 +480,22 @@ onBeforeUnmount(() => {
   </p>
 
   <template v-else-if="data">
+
+    <!-- CABECERA EJECUTIVA E IMPRESIÓN DE FICHA DE OBRA -->
+    <div class="card" style="padding:18px 22px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;border-left:5px solid var(--naranjo,#df6620)">
+      <div>
+        <div class="eyebrow">CONSTRUCTORA TOCAL LIMITADA · FICHA EJECUTIVA DE CONTROL DE OBRA</div>
+        <h2 style="margin:4px 0">{{ data.obra?.nombre || obraId }}</h2>
+        <small class="muted">
+          Mandante: <strong>{{ data.obra?.mandante || '—' }}</strong> · Servicio: {{ data.obra?.servicio || '—' }} · Adm. Contrato: {{ data.obra?.adm_contrato || '—' }} · Prevención (PDR): {{ data.obra?.asesor_pdr || '—' }}
+        </small>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-primary btn-sm" @click="printObraExecutiveSheet">
+          Imprimir Ficha Ejecutiva de Obra (PDF)
+        </button>
+      </div>
+    </div>
 
     <!-- =====================================================
          CURVA S Y RESUMEN

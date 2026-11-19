@@ -1,9 +1,11 @@
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { state, can } from '../../../lib/state';
 import { documentsApi } from '../services/documentsApi';
 import { worksApi } from '../services/worksApi';
 
+const route = useRoute();
 const companyId = computed(() => state.activeCompanyId);
 const canCreateDoc = computed(() => can('documentos.crear'));
 const canApproveDoc = computed(() => can('documentos.aprobar') || can('documentos.editar'));
@@ -44,6 +46,174 @@ const equipmentReviewObs = ref('');
 const companyDocTypes = computed(() => docTypes.value.filter(t => t.categoria === 'empresa' && t.activo));
 const equipmentDocTypes = computed(() => docTypes.value.filter(t => t.categoria === 'equipo' && t.activo));
 
+// RF-12: Checklists e inspecciones digitales
+const checklistsList = ref([]);
+const checklistTemplates = [
+  'Check-list Pre-operacional de Maquinaria / Vehículo',
+  'Inspección de Arnés y Sistema de Detención de Caídas (Altura)',
+  'Inspección de Herramientas Eléctricas y Tableros Provisionales',
+  'Inspección de Excavaciones, Taludes y Entibaciones',
+  'Inspección de Extintores, Orden y Aseo en Obra',
+];
+const checklistForm = ref({
+  tipo_checklist: checklistTemplates[0],
+  obra_id: '',
+  equipo_id: '',
+  fecha: new Date().toISOString().slice(0, 10),
+  inspector: '',
+  resultado_global: 'conforme',
+  hallazgos: '',
+  medidas_correctivas: '',
+});
+
+// RF-15: Consulta rápida en terreno
+const fieldQuery = ref('');
+const fieldObraFilter = ref('');
+const fieldResults = ref([]);
+const fieldPtsSummary = ref([]);
+const loadingField = ref(false);
+const charlaForm = ref({
+  tema: 'Charla Operacional Diaria de 5 Minutos y AST en Terreno',
+  obra_id: '',
+  relator: '',
+  riesgos_criticos: 'Caída a distinto nivel, atrapamiento, proyección de partículas y uso obligatorio de EPP.',
+   fecha: new Date().toISOString().slice(0, 10),
+  trabajador_ids: [],
+});
+
+function toggleAllCharlaWorkers(checked) {
+  charlaForm.value.trabajador_ids = checked ? fieldResults.value.map(w => w.id) : [];
+}
+
+async function submitCharlaCuadrilla() {
+  if (!companyId.value || saving.value) return;
+  if (!charlaForm.value.trabajador_ids.length) {
+    error.value = 'Selecciona al menos un trabajador de la cuadrilla para registrar la asistencia.';
+    return;
+  }
+  saving.value = true; error.value = ''; info.value = '';
+  try {
+    const res = await documentsApi.registerCrewSafetyTalk(companyId.value, {
+      ...charlaForm.value,
+      obra_id: charlaForm.value.obra_id || fieldObraFilter.value || null,
+    });
+    charlaForm.value.trabajador_ids = [];
+    await searchFieldWorkers();
+    info.value = `Charla Diaria 5 Minutos / AST registrada exitosamente para ${res.registrados || 0} trabajador(es) de la cuadrilla.`;
+  } catch (e) {
+    error.value = e.message || 'No fue posible registrar la charla de cuadrilla.';
+  } finally {
+    saving.value = false;
+  }
+}
+
+// RF-16: Dossier de Fiscalización FUF / DS 44
+const dossierObraFilter = ref('');
+const dossierData = ref(null);
+const loadingDossier = ref(false);
+
+function printDossierReport() {
+  window.print();
+}
+
+async function loadChecklists() {
+  if (!companyId.value) return;
+  try {
+    checklistsList.value = await documentsApi.checklists(companyId.value);
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+
+async function saveChecklist() {
+  if (!companyId.value || saving.value) return;
+  saving.value = true; error.value = ''; info.value = '';
+  try {
+    await documentsApi.createChecklist(companyId.value, {
+      ...checklistForm.value,
+      obra_id: checklistForm.value.obra_id || null,
+      equipo_id: checklistForm.value.equipo_id || null,
+    });
+    checklistForm.value = {
+      tipo_checklist: checklistTemplates[0],
+      obra_id: '',
+      equipo_id: '',
+      fecha: new Date().toISOString().slice(0, 10),
+      inspector: '',
+      resultado_global: 'conforme',
+      hallazgos: '',
+      medidas_correctivas: '',
+    };
+    await loadChecklists();
+    info.value = 'Inspección / Checklist digital registrado con trazabilidad de auditoría.';
+  } catch (e) {
+    error.value = e.message || 'No se pudo guardar el checklist.';
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function searchFieldWorkers() {
+  if (!companyId.value) return;
+  loadingField.value = true; error.value = '';
+  try {
+    const res = await documentsApi.fieldLookupFull(companyId.value, {
+      q: fieldQuery.value.trim(),
+      obra_id: fieldObraFilter.value || '',
+    });
+    fieldResults.value = res.results || [];
+    fieldPtsSummary.value = res.resumen_pts || [];
+  } catch (e) {
+    error.value = e.message || 'No fue posible realizar la consulta en terreno.';
+  } finally {
+    loadingField.value = false;
+  }
+}
+
+async function loadDossier() {
+  if (!companyId.value) return;
+  loadingDossier.value = true; error.value = '';
+  try {
+    dossierData.value = await documentsApi.dossierFufDs44(companyId.value, dossierObraFilter.value || null);
+  } catch (e) {
+    error.value = e.message || 'No fue posible cargar el Dossier FUF / DS 44.';
+  } finally {
+    loadingDossier.value = false;
+  }
+}
+
+const viewMode = computed(() => route.meta?.viewMode || 'empresa-equipos');
+
+watch(activeTab, tab => {
+  if (tab === 'checklists') loadChecklists();
+  if (tab === 'terreno') searchFieldWorkers();
+  if (tab === 'dossier') loadDossier();
+});
+
+watch(
+  () => [route.path, route.query.tab, viewMode.value],
+  ([, qTab, mode]) => {
+    error.value = '';
+    info.value = '';
+    if (mode === 'terreno') {
+      activeTab.value = 'terreno';
+      searchFieldWorkers();
+      return;
+    }
+    if (mode === 'dossier') {
+      activeTab.value = 'dossier';
+      loadDossier();
+      return;
+    }
+    if (qTab && ['empresa', 'equipos', 'checklists', 'terreno', 'dossier'].includes(String(qTab))) {
+      activeTab.value = String(qTab);
+    } else {
+      activeTab.value = 'empresa';
+    }
+  },
+  { immediate: true }
+);
+
 async function loadAll() {
   const id = companyId.value;
   if (!id) return;
@@ -52,7 +222,7 @@ async function loadAll() {
   try {
     const [typesResp, obrasResp, cDocs, cComp, eqList] = await Promise.all([
       documentsApi.types(id).catch(() => []),
-      worksApi.listByCompany(id).catch(() => ({ results: [] })),
+      worksApi.list().catch(() => ({ results: [] })),
       documentsApi.companyDocuments(id).catch(() => []),
       documentsApi.companyCompliance(id).catch(() => null),
       documentsApi.equipmentList(id).catch(() => []),
@@ -65,6 +235,9 @@ async function loadAll() {
     if (eqList.length && !selectedEquipment.value) {
       await selectEquipment(eqList[0]);
     }
+    if (activeTab.value === 'checklists') await loadChecklists();
+    if (activeTab.value === 'terreno') await searchFieldWorkers();
+    if (activeTab.value === 'dossier') await loadDossier();
   } catch (e) {
     error.value = e.message || 'No se pudo cargar la información.';
   } finally {
@@ -286,14 +459,23 @@ onMounted(loadAll);
 
 <template>
   <section class="stack" style="max-width:1200px">
-    <header class="stack-sm">
-      <h1>Documentos de empresa, equipos y maquinaria</h1>
-      <p>Control documental corporativo, catálogo de maquinaria, asignaciones a obra y cumplimiento operacional.</p>
+    <header v-if="viewMode === 'terreno'" class="stack-sm">
+      <h1>Consulta rápida de habilitación en terreno</h1>
+      <p>Verifica al instante por RUT, nombre, cargo u obra el semáforo de habilitación (Verde / Amarillo / Rojo) antes de autorizar el ingreso o inicio de faena (RF-15).</p>
+    </header>
+    <header v-else-if="viewMode === 'dossier'" class="stack-sm">
+      <h1>Dossier de Fiscalización FUF / DS 44</h1>
+      <p>Consolidado ejecutivo y auditable de prevención de riesgos para inspecciones de la Dirección del Trabajo (DT), SEREMI de Salud y Mutualidades (RF-16).</p>
+    </header>
+    <header v-else class="stack-sm">
+      <h1>Documentos de empresa, equipos e inspecciones</h1>
+      <p>Control documental corporativo (PTS, RIOHS, IPER), maquinaria y checklists digitales en terreno (RF-12).</p>
     </header>
 
-    <div class="pills" style="display:flex;gap:8px">
-      <button type="button" class="pill" :aria-selected="activeTab==='empresa'" @click="activeTab='empresa'">Documentos de empresa</button>
+    <div v-if="viewMode === 'empresa-equipos'" class="pills" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="pill" :aria-selected="activeTab==='empresa'" @click="activeTab='empresa'">Documentos de empresa y PTS</button>
       <button type="button" class="pill" :aria-selected="activeTab==='equipos'" @click="activeTab='equipos'">Equipos y maquinaria</button>
+      <button type="button" class="pill" :aria-selected="activeTab==='checklists'" @click="activeTab='checklists'">Checklists e inspecciones (RF-12)</button>
     </div>
 
     <p v-if="error" role="alert" class="notice bad">{{ error }}</p>
@@ -311,6 +493,32 @@ onMounted(loadAll);
       <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px;align-items:start">
         <div class="card stack-sm" style="padding:20px">
           <h2>Expediente documental de la empresa</h2>
+          <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:10px">
+            <summary class="create-drawer__trigger">Registrar documento de empresa</summary>
+            <form class="stack-sm" @submit.prevent="createCompanyDoc">
+              <p v-if="!companyDocTypes.length" class="muted">Primero registra un tipo documental de categoría «Empresa» en Ajustes y mantenedores.</p>
+              <template v-else>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <label class="stack-sm">Tipo documental
+                    <select v-model="companyDocForm.tipo_documento_id" required style="padding:8px">
+                      <option value="">Selecciona…</option>
+                      <option v-for="t in companyDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                    </select>
+                  </label>
+                  <label class="stack-sm">Obra asociada (opcional)
+                    <select v-model="companyDocForm.obra_id" style="padding:8px">
+                      <option value="">General empresa</option>
+                      <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+                    </select>
+                  </label>
+                  <label class="stack-sm">Fecha emisión <input v-model="companyDocForm.fecha_emision" type="date" style="padding:8px" /></label>
+                  <label class="stack-sm">Fecha vencimiento <input v-model="companyDocForm.fecha_vencimiento" type="date" style="padding:8px" /></label>
+                </div>
+                <input v-model="companyDocForm.observaciones" placeholder="Observaciones" style="padding:8px" />
+                <button class="btn" type="submit" :disabled="saving">Crear documento empresarial</button>
+              </template>
+            </form>
+          </details>
           <p v-if="loading">Cargando documentos…</p>
           <p v-else-if="!companyDocs.length" class="muted">No hay documentos corporativos registrados.</p>
           <table v-else style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
@@ -326,31 +534,6 @@ onMounted(loadAll);
               </tr>
             </tbody>
           </table>
-
-          <form v-if="canCreateDoc" class="stack-sm" style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px" @submit.prevent="createCompanyDoc">
-            <h3>Registrar documento de empresa</h3>
-            <p v-if="!companyDocTypes.length" class="muted">Primero registra un tipo documental de categoría «Empresa» en Ajustes y mantenedores.</p>
-            <template v-else>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                <label class="stack-sm">Tipo documental
-                  <select v-model="companyDocForm.tipo_documento_id" required style="padding:8px">
-                    <option value="">Selecciona…</option>
-                    <option v-for="t in companyDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-                  </select>
-                </label>
-                <label class="stack-sm">Obra asociada (opcional)
-                  <select v-model="companyDocForm.obra_id" style="padding:8px">
-                    <option value="">General empresa</option>
-                    <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
-                  </select>
-                </label>
-                <label class="stack-sm">Fecha emisión <input v-model="companyDocForm.fecha_emision" type="date" style="padding:8px" /></label>
-                <label class="stack-sm">Fecha vencimiento <input v-model="companyDocForm.fecha_vencimiento" type="date" style="padding:8px" /></label>
-              </div>
-              <input v-model="companyDocForm.observaciones" placeholder="Observaciones" style="padding:8px" />
-              <button class="btn" type="submit" :disabled="saving">Crear documento empresarial</button>
-            </template>
-          </form>
         </div>
 
         <div class="card stack-sm" style="padding:20px">
@@ -390,6 +573,20 @@ onMounted(loadAll);
       <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:18px;align-items:start">
         <div class="card stack-sm" style="padding:20px">
           <h2>Catálogo de equipos y maquinaria</h2>
+          <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:10px">
+            <summary class="create-drawer__trigger">Registrar equipo o maquinaria</summary>
+            <form class="stack-sm" @submit.prevent="saveNewEquipment">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <input v-model.trim="equipmentForm.codigo" required placeholder="Código (ej. exc-01)" style="padding:8px" />
+                <input v-model.trim="equipmentForm.nombre" required placeholder="Retroexcavadora CAT 416" style="padding:8px" />
+                <input v-model="equipmentForm.tipo_equipo" placeholder="Tipo (Maquinaria, Vehículo…)" style="padding:8px" />
+                <input v-model="equipmentForm.patente_o_serie" placeholder="Patente o N° serie" style="padding:8px" />
+                <input v-model="equipmentForm.marca" placeholder="Marca" style="padding:8px" />
+                <input v-model="equipmentForm.modelo" placeholder="Modelo" style="padding:8px" />
+              </div>
+              <button class="btn" type="submit" :disabled="saving">Crear equipo</button>
+            </form>
+          </details>
           <p v-if="!equipmentList.length" class="muted">No hay equipos registrados en la empresa.</p>
           <table v-else style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
             <thead><tr><th>Nombre</th><th>Código / Patente</th><th>Tipo</th><th>Estado</th><th></th></tr></thead>
@@ -403,19 +600,6 @@ onMounted(loadAll);
               </tr>
             </tbody>
           </table>
-
-          <form v-if="canCreateDoc" class="stack-sm" style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:16px" @submit.prevent="saveNewEquipment">
-            <h3>Registrar equipo o maquinaria</h3>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <input v-model.trim="equipmentForm.codigo" required placeholder="Código (ej. exc-01)" style="padding:8px" />
-              <input v-model.trim="equipmentForm.nombre" required placeholder="Retroexcavadora CAT 416" style="padding:8px" />
-              <input v-model="equipmentForm.tipo_equipo" placeholder="Tipo (Maquinaria, Vehículo…)" style="padding:8px" />
-              <input v-model="equipmentForm.patente_o_serie" placeholder="Patente o N° serie" style="padding:8px" />
-              <input v-model="equipmentForm.marca" placeholder="Marca" style="padding:8px" />
-              <input v-model="equipmentForm.modelo" placeholder="Modelo" style="padding:8px" />
-            </div>
-            <button class="btn" type="submit" :disabled="saving">Crear equipo</button>
-          </form>
         </div>
 
         <div class="card stack-sm" style="padding:20px">
@@ -435,6 +619,20 @@ onMounted(loadAll);
             </div>
 
             <h3>Asignaciones históricas a obras</h3>
+            <details v-if="canCreateDoc && obras.length" class="create-drawer create-drawer--inline" style="margin-bottom:8px">
+              <summary class="create-drawer__trigger">Asignar equipo a obra</summary>
+              <form class="stack-sm" @submit.prevent="saveEquipmentAssignment">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                  <select v-model="assignmentForm.obra_id" required style="padding:8px">
+                    <option value="">Selecciona obra…</option>
+                    <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+                  </select>
+                  <input v-model="assignmentForm.fecha_inicio" type="date" required style="padding:8px" />
+                  <input v-model="assignmentForm.responsable" placeholder="Responsable / Operador" style="padding:8px" />
+                </div>
+                <button class="btn btn-sm" type="submit" :disabled="saving">Asignar a obra</button>
+              </form>
+            </details>
             <table v-if="equipmentAssignments.length" style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
               <thead><tr><th>Obra</th><th>Responsable</th><th>Inicio</th><th>Término</th></tr></thead>
               <tbody>
@@ -448,20 +646,20 @@ onMounted(loadAll);
             </table>
             <p v-else class="muted">Sin asignaciones a obras registradas.</p>
 
-            <form v-if="canCreateDoc && obras.length" class="stack-sm" @submit.prevent="saveEquipmentAssignment">
-              <h4>Asignar equipo a obra</h4>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                <select v-model="assignmentForm.obra_id" required style="padding:8px">
-                  <option value="">Selecciona obra…</option>
-                  <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
-                </select>
-                <input v-model="assignmentForm.fecha_inicio" type="date" required style="padding:8px" />
-                <input v-model="assignmentForm.responsable" placeholder="Responsable / Operador" style="padding:8px" />
-              </div>
-              <button class="btn btn-sm" type="submit" :disabled="saving">Asignar a obra</button>
-            </form>
-
             <h3 style="margin-top:14px">Documentación del equipo</h3>
+            <details v-if="canCreateDoc && equipmentDocTypes.length" class="create-drawer create-drawer--inline" style="margin-bottom:8px">
+              <summary class="create-drawer__trigger">Registrar documento del equipo</summary>
+              <form class="stack-sm" @submit.prevent="saveEquipmentDocument">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                  <select v-model="equipmentDocForm.tipo_documento_id" required style="padding:8px">
+                    <option value="">Tipo documental (Equipo)…</option>
+                    <option v-for="t in equipmentDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                  </select>
+                  <input v-model="equipmentDocForm.fecha_vencimiento" type="date" style="padding:8px" />
+                </div>
+                <button class="btn btn-sm" type="submit" :disabled="saving">Crear documento de equipo</button>
+              </form>
+            </details>
             <table v-if="equipmentDocs.length" style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
               <thead><tr><th>Documento</th><th>Vencimiento</th><th>Estado</th><th>Evidencia</th><th></th></tr></thead>
               <tbody>
@@ -475,18 +673,6 @@ onMounted(loadAll);
               </tbody>
             </table>
             <p v-else class="muted">Sin documentos registrados para este equipo.</p>
-
-            <form v-if="canCreateDoc && equipmentDocTypes.length" class="stack-sm" @submit.prevent="saveEquipmentDocument">
-              <h4>Registrar documento del equipo</h4>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                <select v-model="equipmentDocForm.tipo_documento_id" required style="padding:8px">
-                  <option value="">Tipo documental (Equipo)…</option>
-                  <option v-for="t in equipmentDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-                </select>
-                <input v-model="equipmentDocForm.fecha_vencimiento" type="date" style="padding:8px" />
-              </div>
-              <button class="btn btn-sm" type="submit" :disabled="saving">Crear documento de equipo</button>
-            </form>
 
             <div v-if="selectedEquipmentDoc" class="card stack-sm" style="padding:14px;background:#f9fafb">
               <h4>Evidencias y aprobación: {{ selectedEquipmentDoc.tipo_documento_nombre }}</h4>
@@ -509,6 +695,281 @@ onMounted(loadAll);
           </template>
         </div>
       </div>
+    </div>
+
+    <!-- RF-12: CHECKLISTS DIGITALES E INSPECCIONES -->
+    <div v-else-if="activeTab==='checklists'" class="stack">
+      <details v-if="canCreateDoc" class="create-drawer">
+        <summary class="create-drawer__trigger">Registrar inspección / checklist digital (RF-12)</summary>
+        <form class="stack-sm" @submit.prevent="saveChecklist">
+          <label class="stack-sm">Tipo de lista de verificación
+            <select v-model="checklistForm.tipo_checklist" required style="padding:8px">
+              <option v-for="tpl in checklistTemplates" :key="tpl" :value="tpl">{{ tpl }}</option>
+            </select>
+          </label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <label class="stack-sm">Obra / Centro de trabajo
+              <select v-model="checklistForm.obra_id" style="padding:8px">
+                <option value="">General empresa</option>
+                <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+              </select>
+            </label>
+            <label class="stack-sm">Equipo / Maquinaria (opcional)
+              <select v-model="checklistForm.equipo_id" style="padding:8px">
+                <option value="">No aplica / General</option>
+                <option v-for="eq in equipmentList" :key="eq.id" :value="eq.id">{{ eq.nombre }} ({{ eq.codigo }})</option>
+              </select>
+            </label>
+            <label class="stack-sm">Fecha inspección
+              <input v-model="checklistForm.fecha" type="date" required style="padding:8px" />
+            </label>
+            <label class="stack-sm">Resultado global
+              <select v-model="checklistForm.resultado_global" style="padding:8px">
+                <option value="conforme">Conforme / Operativo</option>
+                <option value="con_observaciones">Con observaciones menores</option>
+                <option value="no_conforme">No conforme / Detener tarea</option>
+              </select>
+            </label>
+          </div>
+          <label class="stack-sm">Inspector / Supervisor responsable
+            <input v-model="checklistForm.inspector" placeholder="Nombre de quien realiza la inspección" style="padding:8px" />
+          </label>
+          <label class="stack-sm">Hallazgos detectados
+            <textarea v-model="checklistForm.hallazgos" rows="2" placeholder="Detalle de puntos revisados u observaciones en terreno…" style="padding:8px" />
+          </label>
+          <label class="stack-sm">Medidas correctivas / Cierre
+            <textarea v-model="checklistForm.medidas_correctivas" rows="2" placeholder="Acciones tomadas o compromiso de cierre…" style="padding:8px" />
+          </label>
+          <button class="btn" type="submit" :disabled="saving">Guardar checklist digital</button>
+        </form>
+      </details>
+
+      <div class="card stack-sm" style="padding:20px">
+          <h2>Historial de inspecciones y checklists ({{ checklistsList.length }})</h2>
+          <p v-if="!checklistsList.length" class="muted">No hay inspecciones digitales registradas aún.</p>
+          <div v-else style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+              <thead><tr><th>Fecha</th><th>Checklist / Equipo</th><th>Obra</th><th>Inspector</th><th>Resultado</th><th>Hallazgos</th></tr></thead>
+              <tbody>
+                <tr v-for="chk in checklistsList" :key="chk.id">
+                  <td>{{ chk.fecha }}</td>
+                  <td><strong>{{ chk.tipo_checklist }}</strong><br><small v-if="chk.equipo_nombre" class="muted">{{ chk.equipo_nombre }}</small></td>
+                  <td>{{ chk.obra_nombre }}</td>
+                  <td>{{ chk.inspector }}</td>
+                  <td><span class="badge">{{ chk.resultado_global }}</span></td>
+                  <td><small>{{ chk.hallazgos || 'Sin hallazgos' }} {{ chk.medidas_correctivas ? `— Acción: ${chk.medidas_correctivas}` : '' }}</small></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+    </div>
+
+    <!-- RF-15: CONSULTA RÁPIDA EN TERRENO -->
+    <div v-else-if="activeTab==='terreno'" class="stack">
+      <!-- RF-08 / DS 44: CHARLA DIARIA DE 5 MINUTOS / AST DE CUADRILLA (ARRIBA DE LA VISTA) -->
+      <details v-if="canCreateDoc" class="create-drawer">
+        <summary class="create-drawer__trigger">Registrar Charla Diaria de 5 Minutos / AST con Asistencia de Cuadrilla (DS 44 / RF-08)</summary>
+        <form class="stack-sm" @submit.prevent="submitCharlaCuadrilla">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+            <label class="stack-sm">Tema de la Charla / Procedimiento (PTS)
+              <input v-model.trim="charlaForm.tema" required placeholder="Ej: Charla 5 Min — Trabajo Seguro en Altura" style="padding:8px" />
+            </label>
+            <label class="stack-sm">Obra / Faena
+              <select v-model="charlaForm.obra_id" style="padding:8px">
+                <option value="">General empresa / Según filtro</option>
+                <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+              </select>
+            </label>
+            <label class="stack-sm">Relator / Capataz / Prevencionista
+              <input v-model.trim="charlaForm.relator" placeholder="Nombre de quien dicta la charla" style="padding:8px" />
+            </label>
+            <label class="stack-sm">Fecha de realización
+              <input v-model="charlaForm.fecha" type="date" required style="padding:8px" />
+            </label>
+          </div>
+          <label class="stack-sm">Riesgos críticos y medidas de control analizadas en el AST
+            <input v-model.trim="charlaForm.riesgos_criticos" placeholder="Riesgos identificados y controles en terreno…" style="padding:8px" />
+          </label>
+          <div class="card stack-sm" style="padding:12px;background:#faf9f6">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+              <strong style="font-size:13px">Asistentes de la cuadrilla ({{ charlaForm.trabajador_ids.length }} seleccionados)</strong>
+              <div style="display:flex;gap:6px">
+                <button type="button" class="btn btn-ghost btn-sm" @click="toggleAllCharlaWorkers(true)">Marcar todos ({{ fieldResults.length }})</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="toggleAllCharlaWorkers(false)">Desmarcar todos</button>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;max-height:160px;overflow-y:auto">
+              <label v-for="w in fieldResults" :key="w.id" style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+                <input v-model="charlaForm.trabajador_ids" type="checkbox" :value="w.id" style="width:auto" />
+                <span>{{ w.nombre }} <small class="muted">({{ w.qr_codigo || `#${w.id}` }})</small></span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <button class="btn" type="submit" :disabled="saving || !charlaForm.trabajador_ids.length">
+              {{ saving ? 'Registrando asistencia…' : `Guardar Charla / AST para ${charlaForm.trabajador_ids.length} trabajador(es)` }}
+            </button>
+          </div>
+        </form>
+      </details>
+
+      <div class="card stack-sm" style="padding:20px">
+        <h2>Consulta rápida de habilitación y verificador QR en terreno (RF-15)</h2>
+        <p class="muted">Verifica al instante por RUT, nombre, cargo o código de credencial QR (<code>TOCAL-0001</code>) si un trabajador cumple requisitos documentales, inducción, cursos/PTS y EPP antes de autorizar una tarea.</p>
+        <form style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end" @submit.prevent="searchFieldWorkers">
+          <label style="flex:1;min-width:220px">Buscar por nombre, RUT, cargo o código QR (ej. TOCAL-0001)
+            <input v-model.trim="fieldQuery" type="search" placeholder="Ej: TOCAL-0001, Maestro, Juan, 12.345…" style="width:100%;padding:10px" />
+          </label>
+          <label style="min-width:200px">Filtrar por obra
+            <select v-model="fieldObraFilter" style="width:100%;padding:10px" @change="searchFieldWorkers">
+              <option value="">Todas las obras</option>
+              <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+            </select>
+          </label>
+          <button class="btn" type="submit" :disabled="loadingField">{{ loadingField ? 'Buscando…' : 'Consultar en terreno' }}</button>
+        </form>
+      </div>
+
+      <!-- RF-07: SEMÁFORO DE COBERTURA DE PROCEDIMIENTOS DE TRABAJO SEGURO (PTS) -->
+      <div v-if="fieldPtsSummary.length" class="card stack-sm" style="padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <h3 style="margin:0">Semáforo de Cobertura de PTS e Inducciones en Cuadrilla (RF-07)</h3>
+            <small class="muted">Porcentaje de trabajadores activos con difusión y evaluación vigente por cada Procedimiento de Trabajo Seguro.</small>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+          <div
+            v-for="pts in fieldPtsSummary"
+            :key="pts.id"
+            class="card"
+            style="padding:12px;border-left:4px solid"
+            :style="{ borderLeftColor: pts.semaforo === 'verde' ? '#16a34a' : pts.semaforo === 'amarillo' ? '#d97706' : '#dc2626' }"
+          >
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+              <strong style="font-size:12.5px">{{ pts.nombre }}</strong>
+              <span class="badge" :style="{ background: pts.semaforo === 'verde' ? '#dcfce7' : pts.semaforo === 'amarillo' ? '#fef3c7' : '#fee2e2', color: '#111827', fontWeight: 700 }">
+                {{ pts.porcentaje }}%
+              </span>
+            </div>
+            <div style="font-size:11.5px;color:#475569;margin-top:6px">
+              Capacitados: <strong>{{ pts.cubiertos }} / {{ pts.total_trabajadores }}</strong>
+              <span v-if="pts.pendientes > 0" style="color:#b91c1c"> · {{ pts.pendientes }} pendiente(s)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="!loadingField && !fieldResults.length" class="card" style="padding:18px">No se encontraron trabajadores para el criterio consultado.</p>
+      <div v-else style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
+        <div v-for="w in fieldResults" :key="w.id" class="card stack-sm" style="padding:18px;border-left:5px solid" :style="{ borderLeftColor: w.estado_habilitacion === 'habilitado' ? '#16a34a' : w.estado_habilitacion === 'con_observaciones' ? '#d97706' : '#dc2626' }">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <h3 style="margin:0">{{ w.nombre }}</h3>
+                <code v-if="w.qr_codigo" style="font-size:11px;background:#f1f5f9;padding:2px 6px;border-radius:6px">{{ w.qr_codigo }}</code>
+              </div>
+              <small v-if="w.rut" class="muted">RUT: {{ w.rut }}</small>
+            </div>
+            <span class="badge" :style="{ background: w.estado_habilitacion === 'habilitado' ? '#dcfce7' : w.estado_habilitacion === 'con_observaciones' ? '#fef3c7' : '#fee2e2', color: '#111827', fontWeight: 700 }">
+              {{ w.estado_label }}
+            </span>
+          </div>
+          <div v-if="w.asignaciones_activas?.length" style="font-size:13px">
+            <div v-for="(asig, idx) in w.asignaciones_activas" :key="idx">
+              <strong>{{ asig.cargo_nombre }}</strong> en {{ asig.obra_nombre }}
+            </div>
+          </div>
+          <small v-else class="muted">Sin asignación de obra vigente</small>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;background:#f8fafc;padding:10px;border-radius:8px">
+            <div><span class="muted">Documentos</span><br><strong>{{ w.documental?.porcentaje ?? 0 }}%</strong> ({{ w.documental?.aprobados ?? 0 }}/{{ w.documental?.total_obligatorios ?? 0 }})</div>
+            <div><span class="muted">Cursos / PTS</span><br><strong>{{ w.capacitaciones?.vigentes ?? 0 }}/{{ w.capacitaciones?.total_obligatorias ?? 0 }}</strong></div>
+            <div><span class="muted">EPP Terreno</span><br><strong>{{ w.epp?.vigentes ?? 0 }}/{{ w.epp?.total_obligatorios ?? 0 }}</strong></div>
+          </div>
+          <ul v-if="w.observaciones?.length" style="margin:0;padding-left:18px;font-size:12px;color:#b91c1c">
+            <li v-for="(obs, i) in w.observaciones" :key="i">{{ obs }}</li>
+          </ul>
+          <div>
+            <RouterLink class="btn btn-ghost btn-sm" :to="{ name: 'trabajador-detalle', params: { trabajadorId: w.id } }">Abrir carpeta completa</RouterLink>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RF-16: DOSSIER DE FISCALIZACIÓN FUF / DS 44 -->
+    <div v-else-if="activeTab==='dossier'" class="stack">
+      <div class="card stack-sm" style="padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="margin:0">Dossier de Cumplimiento y Fiscalización (FUF / DS 44 — RF-16)</h2>
+            <p class="muted" style="margin:4px 0 0">Evidencias estructuradas conforme al Formulario Único de Fiscalización (FUF), DS 44 y Ley 16.744.</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <select v-model="dossierObraFilter" style="padding:8px" @change="loadDossier">
+              <option value="">Toda la empresa</option>
+              <option v-for="o in obras" :key="o.id" :value="o.id">Obra: {{ o.nombre }}</option>
+            </select>
+            <button type="button" class="btn btn-ghost btn-sm" @click="printDossierReport">
+              Imprimir Informe Oficial FUF / DS 44 (PDF)
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" @click="documentsApi.exportComplianceCsv(companyId, { obra_id: dossierObraFilter || undefined })">
+              Exportar planilla de fiscalización (CSV)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="loadingDossier">Consolidando expediente normativo…</p>
+      <template v-else-if="dossierData">
+        <div class="stat-grid cols-4">
+          <div class="card" style="padding:16px"><small class="muted">Cumplimiento Empresa</small><h2>{{ dossierData.kpis?.porcentaje_cumplimiento_empresa ?? 0 }}%</h2></div>
+          <div class="card" style="padding:16px"><small class="muted">Cumplimiento Trabajadores</small><h2>{{ dossierData.kpis?.porcentaje_cumplimiento_trabajadores ?? 0 }}%</h2></div>
+          <div class="card" style="padding:16px"><small class="muted">Trabajadores Habilitados</small><h2>{{ dossierData.kpis?.trabajadores_habilitados_prev ?? 0 }} / {{ dossierData.kpis?.trabajadores_evaluados ?? 0 }}</h2></div>
+          <div class="card" style="padding:16px"><small class="muted">Equipos Habilitados</small><h2>{{ dossierData.kpis?.equipos_habilitados ?? 0 }} / {{ dossierData.kpis?.equipos_activos ?? 0 }}</h2></div>
+        </div>
+
+        <div class="card stack-sm" style="padding:24px;border:1px solid #171716">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #171716;padding-bottom:12px;flex-wrap:wrap;gap:12px">
+            <div>
+              <div class="eyebrow">CONSTRUCTORA TOCAL LIMITADA · EXPEDIENTE NORMATIVO DE FISCALIZACIÓN (RF-16)</div>
+              <h3 style="margin:4px 0">Capítulos de Verificación Normativa — Formulario Único de Fiscalización (FUF) y DS N° 44</h3>
+              <small class="muted">
+                Fecha de emisión: {{ new Date().toLocaleString('es-CL') }} · Alcance: {{ dossierObraFilter ? (obras.find(o => String(o.id) === String(dossierObraFilter))?.nombre || dossierObraFilter) : 'Consolidado General de Empresa' }}
+              </small>
+            </div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+            <thead><tr><th>Código</th><th>Norma / Referencia</th><th>Exigencia Fiscalizable</th><th>Evidencia en Plataforma</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr v-for="cap in dossierData.capitulos_fuf_ds44" :key="cap.codigo">
+                <td><code>{{ cap.codigo }}</code></td>
+                <td><strong>{{ cap.norma }}</strong></td>
+                <td><strong>{{ cap.titulo }}</strong><br><small class="muted">{{ cap.descripcion }}</small></td>
+                <td>{{ cap.evidencia }}</td>
+                <td>
+                  <span class="badge" :style="{ background: cap.estado === 'cumple' ? '#dcfce7' : cap.estado === 'observado' ? '#fef3c7' : '#fee2e2', color: '#111827' }">
+                    {{ cap.estado === 'cumple' ? 'Al día' : cap.estado === 'observado' ? 'Con observaciones' : 'Pendiente' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:24px;padding-top:18px;text-align:center;font-size:12px">
+            <div style="border-top:1px solid #171716;padding-top:8px">
+              <strong>Departamento de Prevención de Riesgos</strong><br>
+              <span>Constructora Tocal Limitada</span><br>
+              <small class="muted">Responsable de Gestión Preventiva DS N° 44</small>
+            </div>
+            <div style="border-top:1px solid #171716;padding-top:8px">
+              <strong>Administración de Contrato / Representante Legal</strong><br>
+              <span>Constructora Tocal Limitada</span><br>
+              <small class="muted">V°B° Presentación ante Dirección del Trabajo / SEREMI / Mutualidad</small>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   </section>
 </template>

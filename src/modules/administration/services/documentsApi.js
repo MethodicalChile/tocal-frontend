@@ -141,4 +141,29 @@ export const documentsApi = {
     return downloadPrivateFile(`${root(empresaId)}/exportar-cumplimiento/${query ? `?${query}` : ''}`, 'cumplimiento_tocal.csv');
   },
   seedTocalCatalogs: empresaId => api.post(`${root(empresaId)}/sembrar-catalogos-tocal/`, {}),
+
+  // RF-06, RF-12, RF-15, RF-16: Hombre Nuevo, Checklists Digitales, Consulta en Terreno y Dossier FUF / DS 44
+  registerHombreNuevo: (empresaId, trabajadorId, data = {}) =>
+    api.post(`${root(empresaId)}/trabajadores/${worker(trabajadorId)}/hombre-nuevo/`, data),
+  registerCrewSafetyTalk: (empresaId, data = {}) =>
+    api.post(`${root(empresaId)}/charla-cuadrilla/`, data),
+  fieldLookup: async (empresaId, params = {}) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.obra_id) qs.set('obra_id', params.obra_id);
+    const query = qs.toString();
+    return (await api.get(`${root(empresaId)}/consulta-terreno/${query ? `?${query}` : ''}`)).results || [];
+  },
+  fieldLookupFull: async (empresaId, params = {}) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.obra_id) qs.set('obra_id', params.obra_id);
+    const query = qs.toString();
+    return api.get(`${root(empresaId)}/consulta-terreno/${query ? `?${query}` : ''}`);
+  },
+  checklists: async (empresaId, obraId = null) =>
+    (await api.get(`${root(empresaId)}/checklists/${obraId ? `?obra_id=${encodeURIComponent(obraId)}` : ''}`)).results || [],
+  createChecklist: (empresaId, data) => api.post(`${root(empresaId)}/checklists/`, data),
+  dossierFufDs44: (empresaId, obraId = null) =>
+    api.get(`${root(empresaId)}/dossier-fuf-ds44/${obraId ? `?obra_id=${encodeURIComponent(obraId)}` : ''}`),
 };

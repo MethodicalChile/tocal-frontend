@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { HardHat, ClipboardCheck, ShieldCheck, Users, Download } from 'lucide-vue-next';
 import { api } from '../lib/api';
 import { state, can } from '../lib/state';
 import { num, pct, obraPath } from '../lib/format';
@@ -16,6 +17,7 @@ const error = ref('');
 // Etapa 10: Panel de cumplimiento documental, preventivo y exportación
 const compliance = ref(null);
 const complianceLoading = ref(false);
+const upcomingAlerts = ref([]);
 const cargos = ref([]);
 const filterObra = ref('');
 const filterCargo = ref('');
@@ -33,16 +35,18 @@ async function loadCompliance() {
   }
   complianceLoading.value = true;
   try {
-    const [compResp, cargosResp] = await Promise.all([
+    const [compResp, cargosResp, alertsResp] = await Promise.all([
       documentsApi.complianceDashboard(id, {
         obra_id: filterObra.value || undefined,
         cargo_id: filterCargo.value || undefined,
         estado: filterEstado.value || undefined,
       }),
-      workforceApi.cargos(id).catch(() => ({ results: [] })),
+      workforceApi.cargos(id).catch(() => []),
+      documentsApi.alerts(id, { leida: false }).catch(() => ({ results: [] })),
     ]);
     compliance.value = compResp;
-    cargos.value = cargosResp.results || [];
+    cargos.value = Array.isArray(cargosResp) ? cargosResp : (cargosResp?.results || []);
+    upcomingAlerts.value = (alertsResp?.results || []).slice(0, 6);
   } catch (_) {
     // Non-fatal if user does not have document permissions
   } finally {
@@ -87,14 +91,14 @@ onMounted(loadDashboard);
 <template>
   <div class="page-heading">
     <div class="page-heading__titles">
-      <div class="eyebrow">Panel general</div>
-      <h1 class="page-title display">Hola, {{ state.user?.name?.split(' ')[0] }}</h1>
-      <p class="page-description">Control operacional de obras, cumplimiento documental y prevención de riesgos</p>
+      <div class="eyebrow">Panel ejecutivo</div>
+      <h1 class="page-title display">Hola, {{ state.user?.name?.split(' ')[0] || 'Usuario' }}</h1>
+      <p class="page-description">Control operacional de obras, cumplimiento documental, prevención DS 44 y fiscalización</p>
     </div>
   </div>
 
   <p v-if="error" class="notice bad" role="alert">{{ error }}</p>
-  <p v-else-if="loading">Cargando resumen…</p>
+  <p v-else-if="loading">Cargando resumen operacional…</p>
 
   <template v-else-if="data">
     <div class="stat-grid cols-4 dashboard-stats">
@@ -104,92 +108,168 @@ onMounted(loadDashboard);
       <StatTile label="Accidentes acumulados" :value="num(data.accidents)" hint="Suma de todas tus obras" :tone="data.accidents ? 'bad' : 'ok'" />
     </div>
 
+    <!-- ACCESOS RÁPIDOS DE TERRENO Y FISCALIZACIÓN (RF-12, RF-15, RF-16) -->
+    <div v-if="canViewCompliance" class="quick-actions-grid">
+      <RouterLink to="/administracion/consulta-terreno" class="quick-action-card">
+        <span class="quick-action-card__icon"><HardHat :size="20" /></span>
+        <div>
+          <h3 class="quick-action-card__title">Consulta rápida en terreno</h3>
+          <p class="quick-action-card__desc">Semáforo de habilitación por RUT, nombre o cargo (RF-15)</p>
+        </div>
+      </RouterLink>
+      <RouterLink to="/administracion/empresa-equipos?tab=checklists" class="quick-action-card">
+        <span class="quick-action-card__icon"><ClipboardCheck :size="20" /></span>
+        <div>
+          <h3 class="quick-action-card__title">Checklists digitales</h3>
+          <p class="quick-action-card__desc">Inspecciones pre-operacionales de maquinaria y terreno (RF-12)</p>
+        </div>
+      </RouterLink>
+      <RouterLink to="/administracion/dossier-fiscalizacion" class="quick-action-card">
+        <span class="quick-action-card__icon"><ShieldCheck :size="20" /></span>
+        <div>
+          <h3 class="quick-action-card__title">Dossier FUF / DS 44</h3>
+          <p class="quick-action-card__desc">Expediente normativo listo para fiscalización DT / SEREMI (RF-16)</p>
+        </div>
+      </RouterLink>
+      <RouterLink to="/administracion/trabajadores" class="quick-action-card">
+        <span class="quick-action-card__icon"><Users :size="20" /></span>
+        <div>
+          <h3 class="quick-action-card__title">Trabajadores y «Hombre Nuevo»</h3>
+          <p class="quick-action-card__desc">Fichas laborales, cargos Tocal, inducciones y entrega de EPP (RF-06)</p>
+        </div>
+      </RouterLink>
+    </div>
+
     <!-- ETAPA 10: PANEL EJECUTIVO DE CUMPLIMIENTO DOCUMENTAL Y PREVENTIVO -->
     <PageCard
       v-if="compliance"
-      title="Cumplimiento documental y preventivo"
-      description="Indicadores de empresa, trabajadores, equipos y alertas de vencimiento"
+      title="Cumplimiento documental y preventivo (DS 44)"
+      description="Indicadores consolidados de empresa, trabajadores, maquinaria y alertas de vencimiento"
       style="margin-top:20px;margin-bottom:20px"
     >
       <template #actions>
-        <button type="button" class="btn btn-sm" :disabled="exporting" @click="handleExportCsv">
-          {{ exporting ? 'Exportando…' : 'Exportar CSV / Excel' }}
+        <button type="button" class="btn btn-primary btn-sm" :disabled="exporting" @click="handleExportCsv">
+          <Download :size="15" />
+          {{ exporting ? 'Exportando…' : 'Exportar planilla CSV / Excel' }}
         </button>
       </template>
 
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
-          Obra
-          <select v-model="filterObra" style="padding:6px;border-radius:6px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:12px 14px;background:var(--surface-subtle,#faf9f6);border-radius:12px;border:1px solid var(--border,#e2ded5)">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;flex:1;min-width:190px">
+          <span>Obra</span>
+          <select v-model="filterObra" style="flex:1">
             <option value="">Todas las obras</option>
             <option v-for="o in state.obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
-          Cargo
-          <select v-model="filterCargo" style="padding:6px;border-radius:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;flex:1;min-width:190px">
+          <span>Cargo</span>
+          <select v-model="filterCargo" style="flex:1">
             <option value="">Todos los cargos</option>
             <option v-for="c in cargos" :key="c.id" :value="c.id">{{ c.nombre }}</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px">
-          Estado
-          <select v-model="filterEstado" style="padding:6px;border-radius:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;flex:1;min-width:170px">
+          <span>Estado</span>
+          <select v-model="filterEstado" style="flex:1">
             <option value="">Todos</option>
-            <option value="al_dia">Al día</option>
-            <option value="por_vencer">Por vencer</option>
-            <option value="incumplimiento">Con incumplimiento</option>
+            <option value="habilitado">Habilitados al día</option>
+            <option value="con_observaciones">Con observaciones</option>
+            <option value="no_habilitado">No habilitados / Con brechas</option>
           </select>
         </label>
       </div>
 
-      <div class="stat-grid cols-4" style="margin-bottom:16px">
+      <div class="stat-grid cols-4" style="margin-bottom:18px">
         <StatTile
           label="Cumplimiento trabajadores"
-          :value="`${compliance.trabajadores?.porcentaje_promedio ?? 100}%`"
-          :hint="`${compliance.trabajadores?.al_dia ?? 0} al día · ${compliance.trabajadores?.incumplimiento ?? 0} con brechas`"
-          :tone="(compliance.trabajadores?.incumplimiento || 0) > 0 ? 'warn' : 'ok'"
+          :value="`${compliance.kpis?.porcentaje_cumplimiento_trabajadores ?? compliance.trabajadores?.porcentaje_promedio ?? 100}%`"
+          :hint="`${compliance.kpis?.trabajadores_habilitados_prev ?? 0} de ${compliance.kpis?.trabajadores_evaluados ?? 0} habilitados integralmente`"
+          :tone="(compliance.kpis?.documentos_vencidos || 0) > 0 ? 'warn' : 'ok'"
         />
         <StatTile
           label="Cumplimiento empresa"
-          :value="`${compliance.empresa?.porcentaje_cumplimiento ?? 100}%`"
-          :hint="`Estado: ${compliance.empresa?.estado_global || 'al_dia'}`"
+          :value="`${compliance.kpis?.porcentaje_cumplimiento_empresa ?? compliance.cumplimiento_empresa?.porcentaje_cumplimiento ?? 100}%`"
+          :hint="`${compliance.cumplimiento_empresa?.aprobados ?? 0} de ${compliance.cumplimiento_empresa?.total_obligatorios ?? 0} docs corporativos al día`"
         />
         <StatTile
           label="Equipos habilitados"
-          :value="`${compliance.equipos?.porcentaje_promedio ?? 100}%`"
-          :hint="`${compliance.equipos?.al_dia ?? 0} de ${compliance.equipos?.total ?? 0} equipos al día`"
+          :value="`${compliance.kpis?.equipos_habilitados ?? 0} / ${compliance.kpis?.equipos_activos ?? 0}`"
+          :hint="`${compliance.kpis?.equipos_con_vencidos ?? 0} equipos con documentos vencidos`"
         />
         <StatTile
           label="Alertas activas"
-          :value="num((compliance.alertas?.vencidos || 0) + (compliance.alertas?.por_vencer || 0))"
-          :hint="`${compliance.alertas?.vencidos ?? 0} vencidos · ${compliance.alertas?.por_vencer ?? 0} por vencer`"
-          :tone="(compliance.alertas?.vencidos || 0) > 0 ? 'bad' : 'ok'"
+          :value="num(compliance.kpis?.alertas_no_leidas ?? 0)"
+          :hint="`${compliance.kpis?.documentos_vencidos ?? 0} vencidos · ${compliance.kpis?.capacitaciones_pendientes ?? 0} cursos pendientes`"
+          :tone="(compliance.kpis?.alertas_no_leidas || 0) > 0 ? 'bad' : 'ok'"
         />
       </div>
 
-      <div v-if="compliance.obras?.length" style="overflow-x:auto">
-        <h3 style="margin-bottom:8px;font-size:15px">Cumplimiento por obra</h3>
-        <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+      <div v-if="compliance.por_obra?.length" style="overflow-x:auto">
+        <h3 style="margin-bottom:10px;font-size:15px">Dotación, equipos y alertas por obra</h3>
+        <table>
           <thead>
             <tr>
-              <th style="padding:8px">Obra</th>
-              <th style="padding:8px">Trabajadores vigentes</th>
-              <th style="padding:8px">Al día</th>
-              <th style="padding:8px">Incumplimiento</th>
-              <th style="padding:8px">% Cumplimiento</th>
+              <th>Obra</th>
+              <th>Estado</th>
+              <th>Trabajadores asignados</th>
+              <th>Equipos en obra</th>
+              <th>Alertas activas</th>
+              <th>Último informe PDR</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ob in compliance.obras" :key="ob.obra_id">
-              <td style="padding:8px">{{ ob.obra_nombre }}</td>
-              <td style="padding:8px">{{ ob.trabajadores_total }}</td>
-              <td style="padding:8px">{{ ob.trabajadores_al_dia }}</td>
-              <td style="padding:8px">{{ ob.trabajadores_incumplimiento }}</td>
-              <td style="padding:8px"><strong>{{ ob.porcentaje_cumplimiento }}%</strong></td>
+            <tr v-for="ob in compliance.por_obra" :key="ob.obra_id">
+              <td>
+                <RouterLink :to="obraPath(ob.obra_id)" style="font-weight:700;text-decoration:none;color:var(--naranjo-ink,#b14a0f)">
+                  {{ ob.obra_nombre }}
+                </RouterLink>
+              </td>
+              <td><span class="badge">{{ ob.activa ? 'En ejecución' : 'Finalizada' }}</span></td>
+              <td><strong>{{ ob.trabajadores_asignados }}</strong></td>
+              <td>{{ ob.equipos_asignados }}</td>
+              <td>
+                <span class="badge" :style="{ background: ob.alertas_activas > 0 ? '#fee2e2' : '#dcfce7', color: '#111827' }">
+                  {{ ob.alertas_activas }} alertas
+                </span>
+              </td>
+              <td>
+                <span v-if="ob.ultimo_informe_pdr">Sem. {{ ob.ultimo_informe_pdr.semana_numero }} ({{ ob.ultimo_informe_pdr.fecha }})</span>
+                <small v-else class="muted">Sin informe aún</small>
+              </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- RF-13: CUENTA REGRESIVA DE VENCIMIENTOS CRÍTICOS -->
+      <div v-if="upcomingAlerts.length" style="margin-top:18px;border-top:1px solid var(--border,#e2ded5);padding-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0;font-size:15px">Semáforo de Vencimientos Próximos y Documentos Vencidos (RF-13)</h3>
+          <RouterLink to="/administracion/ajustes?tab=alertas" class="btn btn-ghost btn-sm">Ver todas las alertas →</RouterLink>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
+          <div
+            v-for="al in upcomingAlerts"
+            :key="al.id"
+            class="card"
+            style="padding:12px;border-left:4px solid"
+            :style="{ borderLeftColor: al.dias_restantes < 0 ? '#dc2626' : '#d97706' }"
+          >
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <strong style="font-size:12.5px">{{ al.titulo }}</strong>
+              <span class="badge" style="white-space:nowrap;font-weight:700" :style="{ background: al.dias_restantes < 0 ? '#fee2e2' : '#fef3c7', color: '#111827' }">
+                {{ al.dias_restantes < 0 ? `Vencido hace ${Math.abs(al.dias_restantes)} días` : al.dias_restantes === 0 ? 'Vence hoy' : `Vence en ${al.dias_restantes} días` }}
+              </span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:#475569">
+              <span>Fecha límite: <strong>{{ al.fecha_vencimiento }}</strong></span>
+              <RouterLink v-if="al.trabajador_id" :to="{ name: 'trabajador-detalle', params: { trabajadorId: al.trabajador_id } }" class="btn btn-ghost btn-sm">
+                Ir a ficha
+              </RouterLink>
+            </div>
+          </div>
+        </div>
       </div>
     </PageCard>
 
@@ -207,25 +287,33 @@ onMounted(loadDashboard);
       <h2 class="section-head__title">Mis obras</h2>
       <span class="section-head__count">{{ data.cards?.length || 0 }} obras</span>
     </div>
-    <div class="obra-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px">
+    <div class="obra-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px">
       <RouterLink
         v-for="c in data.cards"
         :key="c.obra.id"
         :to="obraPath(c.obra.id)"
         class="card obra-card"
-        style="padding:22px;text-decoration:none"
+        style="padding:24px;text-decoration:none"
       >
-        <div class="card__head">
-          <p class="eyebrow">{{ c.obra.activa ? 'En ejecución' : 'Finalizada' }}</p>
-          <h3 class="card__title">{{ c.obra.nombre }}</h3>
+        <div class="card__head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <p class="eyebrow">{{ c.obra.activa ? 'En ejecución' : 'Finalizada' }}</p>
+            <h3 class="card__title" style="font-size:1.15rem;margin-top:4px">{{ c.obra.nombre }}</h3>
+          </div>
+          <span class="badge">{{ pct(c.state?.real) }}</span>
         </div>
-        <p class="muted">{{ c.obra.servicio }}</p>
+        <p class="muted" style="margin:6px 0 12px">{{ c.obra.servicio }}</p>
+        <div class="progress-track" style="margin-bottom:14px">
+          <div class="progress-fill" :style="{ width: `${Math.min(100, Math.max(0, (c.state?.real || 0) * 100))}%` }"></div>
+        </div>
         <div class="stat-grid cols-2">
           <StatTile label="Avance real" :value="pct(c.state?.real)" />
           <StatTile label="Variación" :value="pct(c.state?.variacion)" :tone="c.progress_tone" />
         </div>
-        <div class="muted" style="margin-top:15px">PDR: {{ num(c.pdr, 1) }} % · RDI pendientes: {{ c.pending }}</div>
-        <p class="btn btn-sm" style="margin-top:12px">Abrir obra →</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--border,#e2ded5)">
+          <span class="muted" style="font-size:0.8rem">PDR: <strong>{{ num(c.pdr, 1) }}%</strong> · RDI: <strong>{{ c.pending }}</strong></span>
+          <span class="btn btn-primary btn-sm">Abrir obra →</span>
+        </div>
       </RouterLink>
     </div>
     <p v-if="!data.cards?.length" class="notice">No tienes obras asignadas todavía.</p>

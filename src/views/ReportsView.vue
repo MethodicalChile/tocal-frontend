@@ -6,5 +6,12 @@ async function load(){try{data.value=await api.get(base.value);week.value=data.v
 watch(()=>route.params.obraId,load,{immediate:true});
 async function create(){loading.value=true;try{const result=await api.post(base.value,{semana:week.value});notice('Informe listo para editar');window.location.href=obraPath(route.params.obraId,'informes')+'/'+result.record.id}catch(e){error.value=e.message}finally{loading.value=false}}
 </script>
-<template><div class="page-heading page-heading--module"><div class="page-heading__titles"><h2 class="page-title display">Informes semanales</h2><p class="page-description">Borradores, fotografías y PDF emitidos</p></div></div><p v-if="error" class="notice bad">{{error}}</p><PageCard v-if="data?.editable" title="Crear informe" description="Selecciona la semana que deseas informar"><form class="page-actions" @submit.prevent="create"><select v-model="week" required><option v-for="w in data.weeks" :key="w.id" :value="w.id">Semana {{w.numero}} · {{date(w.fecha_fin)}}</option></select><button class="btn btn-primary" :disabled="!week||loading">Crear / Abrir informe</button></form></PageCard>
+<template><div class="page-heading page-heading--module"><div class="page-heading__titles"><h2 class="page-title display">Informes semanales</h2><p class="page-description">Borradores, fotografías y PDF emitidos</p></div></div><p v-if="error" class="notice bad">{{error}}</p>
+<details v-if="data?.editable" class="create-drawer" style="margin-bottom:16px">
+  <summary class="create-drawer__trigger">Crear / Abrir informe semanal de obra</summary>
+  <form class="page-actions" style="margin-top:6px" @submit.prevent="create">
+    <select v-model="week" required><option v-for="w in data.weeks" :key="w.id" :value="w.id">Semana {{w.numero}} · {{date(w.fecha_fin)}}</option></select>
+    <button class="btn btn-primary" :disabled="!week||loading">Crear / Abrir informe</button>
+  </form>
+</details>
 <PageCard title="Informes registrados"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Título</th><th>Fecha de corte</th><th>Estado</th><th>Fotografías</th><th></th></tr></thead><tbody><tr v-for="r in data?.reports||[]" :key="r.id"><td>{{r.titulo}}</td><td>{{date(r.fecha_corte)}}</td><td><span class="badge">{{r.estado}}</span></td><td>{{r.photo_count}}</td><td><RouterLink class="btn btn-sm" :to="obraPath(route.params.obraId,'informes')+'/'+r.id">Ver informe</RouterLink></td></tr><tr v-if="!data?.reports?.length"><td colspan="5">Todavía no hay informes registrados.</td></tr></tbody></table></div></PageCard></template>

@@ -69,6 +69,26 @@ async function update(rule, changes) {
 
 <template>
   <div class="stack" style="min-width:0">
+    <details v-if="canCreate" class="create-drawer">
+      <summary class="create-drawer__trigger">Crear nuevo requisito documental</summary>
+      <form @submit.prevent="create">
+        <div class="rules-grid">
+          <label>Tipo documental
+            <select v-model="form.tipo_documento_id" required><option value="">Selecciona un tipo</option><option v-for="t in available" :key="t.id" :value="t.id">{{ t.nombre }}</option></select>
+          </label>
+          <label>Cargo
+            <select v-model="form.cargo_id"><option value="">Todos los cargos</option><option v-for="c in cargos" :key="c.id" :value="String(c.id)">{{ c.nombre }}</option></select>
+          </label>
+          <label>Obra
+            <select v-model="form.obra_id"><option value="">Todas las obras</option><option v-for="o in obras" :key="o.id" :value="String(o.id)">{{ o.nombre }}</option></select>
+          </label>
+          <label class="rule-checkbox"><input v-model="form.obligatorio" type="checkbox" /> Obligatorio</label>
+        </div>
+        <p class="muted">Esta pantalla configura requisitos para trabajadores; los documentos de empresa y equipos tienen sus propios flujos.</p>
+        <button class="btn" type="submit" :disabled="saving || !available.length">{{ saving ? 'Guardando…' : 'Crear requisito' }}</button>
+      </form>
+    </details>
+
     <section class="card rules-card">
       <h2>Requisitos documentales por cargo y obra</h2>
       <p class="muted">Define qué evidencias se solicitan a los trabajadores. Una regla sin cargo aplica a todos los cargos; sin obra, a todas las obras. Las reglas se acumulan.</p>
@@ -91,23 +111,6 @@ async function update(rule, changes) {
       </template>
       <button type="button" class="btn btn-ghost" :disabled="loading" @click="load">Actualizar</button>
     </section>
-    <form v-if="canCreate" class="card rules-card" @submit.prevent="create">
-      <h2>Nuevo requisito</h2>
-      <div class="rules-grid">
-        <label>Tipo documental
-          <select v-model="form.tipo_documento_id" required><option value="">Selecciona un tipo</option><option v-for="t in available" :key="t.id" :value="t.id">{{ t.nombre }}</option></select>
-        </label>
-        <label>Cargo
-          <select v-model="form.cargo_id"><option value="">Todos los cargos</option><option v-for="c in cargos" :key="c.id" :value="String(c.id)">{{ c.nombre }}</option></select>
-        </label>
-        <label>Obra
-          <select v-model="form.obra_id"><option value="">Todas las obras</option><option v-for="o in obras" :key="o.id" :value="String(o.id)">{{ o.nombre }}</option></select>
-        </label>
-        <label class="rule-checkbox"><input v-model="form.obligatorio" type="checkbox" /> Obligatorio</label>
-      </div>
-      <p class="muted">Esta pantalla configura requisitos para trabajadores; los documentos de empresa y equipos tendrán sus propios flujos.</p>
-      <button class="btn" type="submit" :disabled="saving || !available.length">{{ saving ? 'Guardando…' : 'Crear requisito' }}</button>
-    </form>
   </div>
 </template>
 

@@ -7,6 +7,7 @@ function scoped(empresaId, suffix = '') {
 
 export const authorizationApi = {
   myCompanies: () => api.get('/authorization/mis-empresas/'),
+  createCompany: (data) => api.post('/authorization/empresas/crear/', data),
   getCompany: (id) => api.get(scoped(id, '')),
   updateCompany: (id, data) => api.patch(scoped(id, ''), data),
   myPermissions: (id) => api.get(scoped(id, 'mis-permisos/')),
