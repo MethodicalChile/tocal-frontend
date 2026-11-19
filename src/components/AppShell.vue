@@ -222,6 +222,16 @@ const obra = computed(() =>
   )
 );
 
+const activeObraModule = computed(() => {
+  if (route.params.module) return String(route.params.module);
+  if (route.name === 'pdr') return 'pdr';
+  if (route.name === 'avance') return 'avance';
+  if (route.name === 'fotos') return 'fotos';
+  if (route.name === 'informes' || route.name === 'informe') return 'informes';
+  const match = route.path.match(/^\/obras\/[^/]+\/([^/?#]+)/);
+  return match ? match[1] : 'resumen';
+});
+
 /* =========================================================
    BUSCADOR GLOBAL
 ========================================================= */
@@ -1138,7 +1148,7 @@ onBeforeUnmount(() => {
               class="pill"
               :to="obraPath(obra.id, slug)"
               :aria-current="
-                (route.params.module || 'resumen') === slug
+                activeObraModule === slug
                   ? 'page'
                   : undefined
               "

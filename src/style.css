@@ -29,14 +29,74 @@ a {
 }
 
 /* ============================================================================
-   TARJETAS Y PANELES MODERNOS
+   TARJETAS, CONTENEDORES Y RESPONSIVIDAD GLOBAL (SIN SUPERPOSICIONES)
 ============================================================================ */
+.workspace,
+.page,
+section.stack,
+.stack,
+.stack-sm,
+.card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .card {
   background: var(--card, #ffffff);
   border: 1px solid rgba(212, 207, 195, 0.75);
   border-radius: 16px;
   box-shadow: var(--shadow-card);
+  overflow-x: auto;
   transition: box-shadow 200ms var(--ease-out), border-color 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+
+.split-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 18px;
+  align-items: start;
+  width: 100%;
+}
+
+.split-grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.form-row-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.stat-grid,
+.stat-grid.cols-3,
+.stat-grid.cols-4,
+.stat-grid.cols-5,
+.stat-grid.cols-6 {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)) !important;
+}
+
+@media (max-width: 1180px) {
+  .grid-2,
+  .grid-aside {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 780px) {
+  .page {
+    padding: 16px 14px 36px !important;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    padding: 8px 12px !important;
+  }
+  .search-trigger {
+    min-width: auto !important;
+  }
 }
 
 .card .card__body {
@@ -82,13 +142,16 @@ a {
 ============================================================================ */
 section.stack > header h1,
 .authorization-admin__header h1,
-.page-title {
-  font-size: clamp(1.45rem, 2.2vw, 1.85rem);
+.page-title,
+.obra-header__title {
+  font-size: clamp(1.35rem, 2vw, 1.85rem) !important;
   font-weight: 750;
   letter-spacing: -0.025em;
-  line-height: 1.2;
+  line-height: 1.22;
   color: var(--fg, #1a1a1a);
   margin: 0 0 6px;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 section.stack > header p,
@@ -292,23 +355,30 @@ button:disabled {
 }
 
 /* ============================================================================
-   TABLAS DE DATOS MODERNAS
+   TABLAS DE DATOS MODERNAS Y RESPONSIVAS
 ============================================================================ */
+.tbl-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.865rem;
+  font-size: 0.855rem;
 }
 
 table thead th {
   background: var(--surface-subtle, #faf9f6);
   color: var(--muted-fg, #6f6d68);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.045em;
-  padding: 11px 14px !important;
+  letter-spacing: 0.04em;
+  padding: 10px 12px !important;
   border-bottom: 1px solid var(--border-strong, #d4cfc3) !important;
   white-space: nowrap;
 }
@@ -322,10 +392,11 @@ table thead th:last-child {
 }
 
 table tbody td {
-  padding: 12px 14px !important;
+  padding: 10px 12px !important;
   border-bottom: 1px solid var(--border, #e2ded5);
   vertical-align: middle;
   color: var(--fg, #1a1a1a);
+  overflow-wrap: break-word;
   transition: background-color 120ms ease;
 }
 

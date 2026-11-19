@@ -72,6 +72,82 @@ const fieldObraFilter = ref('');
 const fieldResults = ref([]);
 const fieldPtsSummary = ref([]);
 const loadingField = ref(false);
+const showQrScanner = ref(false);
+const qrRawInput = ref('');
+const qrCameraVideo = ref(null);
+const qrCameraActive = ref(false);
+let qrCameraStream = null;
+
+function extractIdentifierFromQrText(raw) {
+  const txt = String(raw || '').trim();
+  if (!txt) return '';
+  // 1. Código credencial TOCAL-XXXX
+  const tocalMatch = txt.match(/TOCAL-\d+/i);
+  if (tocalMatch) return tocalMatch[0].toUpperCase();
+  // 2. URL de Cédula de Identidad Registro Civil de Chile (ej. ...?RUN=12345678-5&type=CEDULA...)
+  const runParamMatch = txt.match(/[?&]RUN=([0-9]{7,8}-?[0-9kK])/i);
+  if (runParamMatch) return runParamMatch[1].toUpperCase();
+  // 3. Cualquier RUT chileno en el texto
+  const rutMatch = txt.match(/\b(\d{1,2}\.?\d{3}\.?\d{3}-?[\dkK])\b/);
+  if (rutMatch) return rutMatch[1].toUpperCase();
+  return txt;
+}
+
+async function applyQrScanText(rawText) {
+  const extracted = extractIdentifierFromQrText(rawText);
+  if (!extracted) return;
+  fieldQuery.value = extracted;
+  stopQrCamera();
+  showQrScanner.value = false;
+  qrRawInput.value = '';
+  info.value = `Código QR leído (${extracted}): mostrando Hoja de Vida y Semáforo del trabajador.`;
+  await searchFieldWorkers();
+}
+
+async function startQrCamera() {
+  error.value = '';
+  if (!navigator?.mediaDevices?.getUserMedia) {
+    error.value = 'Tu navegador no expone cámara en esta sesión; pega o escanea con lector USB el QR de la Cédula o Credencial abajo.';
+    return;
+  }
+  try {
+    qrCameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    qrCameraActive.value = true;
+    setTimeout(() => {
+      if (qrCameraVideo.value && qrCameraStream) {
+        qrCameraVideo.value.srcObject = qrCameraStream;
+        qrCameraVideo.value.play().catch(() => {});
+      }
+    }, 80);
+    if ('BarcodeDetector' in window) {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const scanLoop = async () => {
+        if (!qrCameraActive.value || !qrCameraVideo.value) return;
+        try {
+          const barcodes = await detector.detect(qrCameraVideo.value);
+          if (barcodes?.length && barcodes[0].rawValue) {
+            await applyQrScanText(barcodes[0].rawValue);
+            return;
+          }
+        } catch {
+          // continue scanning
+        }
+        if (qrCameraActive.value) requestAnimationFrame(scanLoop);
+      };
+      requestAnimationFrame(scanLoop);
+    }
+  } catch {
+    error.value = 'No se pudo abrir la cámara; utiliza el campo de lectura rápida de QR de Cédula / Credencial.';
+  }
+}
+
+function stopQrCamera() {
+  qrCameraActive.value = false;
+  if (qrCameraStream) {
+    qrCameraStream.getTracks().forEach(t => t.stop());
+    qrCameraStream = null;
+  }
+}
 const charlaForm = ref({
   tema: 'Charla Operacional Diaria de 5 Minutos y AST en Terreno',
   obra_id: '',
@@ -245,7 +321,44 @@ async function loadAll() {
   }
 }
 
-async function selectCompanyDocItem(doc) {
+function formatStatusLabel(st) {
+  if (!st) return '—';
+  const map = {
+    al_dia: 'Al día',
+    con_observaciones: 'Con observaciones',
+    critico: 'Crítico',
+    aprobado: 'Aprobado',
+    pendiente: 'En revisión',
+    en_revision: 'En revisión',
+    rechazado: 'Rechazado',
+    operativo: 'Operativo',
+    mantencion: 'En mantención',
+    fuera_servicio: 'Fuera de servicio',
+    conforme: 'Conforme',
+    no_conforme: 'No conforme',
+  };
+  return map[String(st).toLowerCase()] || String(st).replace(/_/g, ' ');
+}
+
+function statusBadgeStyle(st) {
+  const s = String(st || '').toLowerCase();
+  if (['al_dia', 'aprobado', 'operativo', 'conforme', 'habilitado'].includes(s)) {
+    return { background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', fontWeight: 700 };
+  }
+  if (['pendiente', 'en_revision', 'con_observaciones', 'mantencion'].includes(s)) {
+    return { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', fontWeight: 700 };
+  }
+  if (['rechazado', 'critico', 'fuera_servicio', 'no_conforme', 'no_habilitado'].includes(s)) {
+    return { background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', fontWeight: 700 };
+  }
+  return { background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600 };
+}
+
+async function selectCompanyDocItem(doc, forceOpen = false) {
+  if (!forceOpen && selectedCompanyDoc.value?.id === doc?.id) {
+    selectedCompanyDoc.value = null;
+    return;
+  }
   selectedCompanyDoc.value = doc;
   companyReviewObs.value = doc.observaciones || '';
   if (!companyId.value || !doc) return;
@@ -287,7 +400,7 @@ async function uploadCompanyDocFile(event) {
     await documentsApi.uploadCompanyDocument(companyId.value, selectedCompanyDoc.value.id, file);
     await loadAll();
     const updated = companyDocs.value.find(d => d.id === selectedCompanyDoc.value.id);
-    if (updated) await selectCompanyDocItem(updated);
+    if (updated) await selectCompanyDocItem(updated, true);
     info.value = 'Evidencia cargada en documento de empresa.';
   } catch (e) {
     error.value = e.message || 'No se pudo subir el archivo.';
@@ -299,16 +412,18 @@ async function uploadCompanyDocFile(event) {
 
 async function reviewCompanyDoc(estado) {
   if (!companyId.value || !selectedCompanyDoc.value || saving.value) return;
+  const normalizedEstado = estado === 'en_revision' ? 'pendiente' : estado;
   saving.value = true; error.value = ''; info.value = '';
   try {
     await documentsApi.reviewCompanyDocument(companyId.value, selectedCompanyDoc.value.id, {
-      estado,
+      estado: normalizedEstado,
       observaciones: companyReviewObs.value,
+      motivo_rechazo: normalizedEstado === 'rechazado' ? companyReviewObs.value : '',
     });
     await loadAll();
     const updated = companyDocs.value.find(d => d.id === selectedCompanyDoc.value.id);
-    if (updated) await selectCompanyDocItem(updated);
-    info.value = `Estado del documento actualizado a ${estado}.`;
+    if (updated) await selectCompanyDocItem(updated, true);
+    info.value = `Estado del documento actualizado a ${formatStatusLabel(normalizedEstado)}.`;
   } catch (e) {
     error.value = e.message || 'No fue posible actualizar la revisión.';
   } finally {
@@ -400,7 +515,11 @@ async function saveEquipmentDocument() {
   }
 }
 
-async function selectEquipmentDocItem(doc) {
+async function selectEquipmentDocItem(doc, forceOpen = false) {
+  if (!forceOpen && selectedEquipmentDoc.value?.id === doc?.id) {
+    selectedEquipmentDoc.value = null;
+    return;
+  }
   selectedEquipmentDoc.value = doc;
   equipmentReviewObs.value = doc.observaciones || '';
   if (!companyId.value || !selectedEquipment.value || !doc) return;
@@ -420,7 +539,7 @@ async function uploadEquipmentDocFile(event) {
     await documentsApi.uploadEquipmentDocument(companyId.value, selectedEquipment.value.id, selectedEquipmentDoc.value.id, file);
     await selectEquipment(selectedEquipment.value);
     const updated = equipmentDocs.value.find(d => d.id === selectedEquipmentDoc.value.id);
-    if (updated) await selectEquipmentDocItem(updated);
+    if (updated) await selectEquipmentDocItem(updated, true);
     info.value = 'Evidencia de equipo cargada.';
   } catch (e) {
     error.value = e.message || 'No se pudo cargar el archivo.';
@@ -432,16 +551,18 @@ async function uploadEquipmentDocFile(event) {
 
 async function reviewEquipmentDoc(estado) {
   if (!companyId.value || !selectedEquipment.value || !selectedEquipmentDoc.value || saving.value) return;
+  const normalizedEstado = estado === 'en_revision' ? 'pendiente' : estado;
   saving.value = true; error.value = ''; info.value = '';
   try {
     await documentsApi.reviewEquipmentDocument(companyId.value, selectedEquipment.value.id, selectedEquipmentDoc.value.id, {
-      estado,
+      estado: normalizedEstado,
       observaciones: equipmentReviewObs.value,
+      motivo_rechazo: normalizedEstado === 'rechazado' ? equipmentReviewObs.value : '',
     });
     await selectEquipment(selectedEquipment.value);
     const updated = equipmentDocs.value.find(d => d.id === selectedEquipmentDoc.value.id);
-    if (updated) await selectEquipmentDocItem(updated);
-    info.value = `Estado del documento de equipo actualizado a ${estado}.`;
+    if (updated) await selectEquipmentDocItem(updated, true);
+    info.value = `Estado del documento de equipo actualizado a ${formatStatusLabel(normalizedEstado)}.`;
   } catch (e) {
     error.value = e.message || 'No fue posible actualizar la revisión.';
   } finally {
@@ -458,7 +579,7 @@ onMounted(loadAll);
 </script>
 
 <template>
-  <section class="stack" style="max-width:1200px">
+  <section class="stack" style="width:100%">
     <header v-if="viewMode === 'terreno'" class="stack-sm">
       <h1>Consulta rápida de habilitación en terreno</h1>
       <p>Verifica al instante por RUT, nombre, cargo u obra el semáforo de habilitación (Verde / Amarillo / Rojo) antes de autorizar el ingreso o inicio de faena (RF-15).</p>
@@ -484,99 +605,149 @@ onMounted(loadAll);
     <!-- ETAPA 7: DOCUMENTOS DE EMPRESA -->
     <div v-if="activeTab==='empresa'" class="stack">
       <div v-if="companyCompliance" class="stat-grid cols-4">
-        <div class="card" style="padding:16px"><small class="muted">Cumplimiento empresa</small><h2>{{ companyCompliance.porcentaje_cumplimiento }}%</h2></div>
-        <div class="card" style="padding:16px"><small class="muted">Estado global</small><h2>{{ companyCompliance.estado_global }}</h2></div>
-        <div class="card" style="padding:16px"><small class="muted">Aprobados vigentes</small><h2>{{ companyCompliance.cumplidos }} / {{ companyCompliance.total_obligatorios }}</h2></div>
-        <div class="card" style="padding:16px"><small class="muted">Faltantes / Vencidos</small><h2>{{ (companyCompliance.resumen?.faltantes || 0) + (companyCompliance.resumen?.vencidos || 0) }}</h2></div>
+        <div class="card" style="padding:16px">
+          <small class="muted">Cumplimiento empresa</small>
+          <h2>{{ companyCompliance.porcentaje_cumplimiento ?? 100 }}%</h2>
+        </div>
+        <div class="card" style="padding:16px">
+          <small class="muted">Estado global</small>
+          <div style="margin-top:6px">
+            <span class="badge" :style="statusBadgeStyle(companyCompliance.estado_global)">
+              {{ formatStatusLabel(companyCompliance.estado_global) }}
+            </span>
+          </div>
+        </div>
+        <div class="card" style="padding:16px">
+          <small class="muted">Aprobados vigentes</small>
+          <h2>{{ companyCompliance.aprobados ?? companyCompliance.cumplidos ?? companyCompliance.resumen?.aprobados ?? companyDocs.filter(d => d.estado === 'aprobado').length }} / {{ companyCompliance.total_obligatorios ?? companyDocs.length }}</h2>
+        </div>
+        <div class="card" style="padding:16px">
+          <small class="muted">Faltantes / Vencidos</small>
+          <h2>{{ (companyCompliance.resumen?.faltantes ?? companyCompliance.faltantes ?? 0) + (companyCompliance.resumen?.vencidos ?? companyCompliance.vencidos ?? 0) }}</h2>
+        </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px;align-items:start">
-        <div class="card stack-sm" style="padding:20px">
-          <h2>Expediente documental de la empresa</h2>
-          <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:10px">
-            <summary class="create-drawer__trigger">Registrar documento de empresa</summary>
-            <form class="stack-sm" @submit.prevent="createCompanyDoc">
-              <p v-if="!companyDocTypes.length" class="muted">Primero registra un tipo documental de categoría «Empresa» en Ajustes y mantenedores.</p>
-              <template v-else>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                  <label class="stack-sm">Tipo documental
-                    <select v-model="companyDocForm.tipo_documento_id" required style="padding:8px">
-                      <option value="">Selecciona…</option>
-                      <option v-for="t in companyDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-                    </select>
-                  </label>
-                  <label class="stack-sm">Obra asociada (opcional)
-                    <select v-model="companyDocForm.obra_id" style="padding:8px">
-                      <option value="">General empresa</option>
-                      <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
-                    </select>
-                  </label>
-                  <label class="stack-sm">Fecha emisión <input v-model="companyDocForm.fecha_emision" type="date" style="padding:8px" /></label>
-                  <label class="stack-sm">Fecha vencimiento <input v-model="companyDocForm.fecha_vencimiento" type="date" style="padding:8px" /></label>
-                </div>
-                <input v-model="companyDocForm.observaciones" placeholder="Observaciones" style="padding:8px" />
-                <button class="btn" type="submit" :disabled="saving">Crear documento empresarial</button>
-              </template>
-            </form>
-          </details>
-          <p v-if="loading">Cargando documentos…</p>
-          <p v-else-if="!companyDocs.length" class="muted">No hay documentos corporativos registrados.</p>
-          <table v-else style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
-            <thead><tr><th>Tipo documental</th><th>Alcance</th><th>Vencimiento</th><th>Estado</th><th>Evidencias</th><th></th></tr></thead>
-            <tbody>
-              <tr v-for="doc in companyDocs" :key="doc.id">
-                <td>{{ doc.tipo_documento_nombre }}</td>
-                <td>{{ doc.obra_nombre || 'General empresa' }}</td>
-                <td>{{ doc.fecha_vencimiento || '—' }}</td>
-                <td>{{ doc.estado }}</td>
-                <td>{{ doc.tiene_evidencia ? `${doc.total_archivos} archivo(s)` : 'Sin archivo' }}</td>
-                <td><button type="button" class="btn btn-ghost btn-sm" @click="selectCompanyDocItem(doc)">Gestionar</button></td>
-              </tr>
-            </tbody>
-          </table>
+      <div class="card stack-sm" style="padding:22px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="margin:0">Expediente documental de la empresa ({{ companyDocs.length }})</h2>
+            <p class="muted" style="margin:4px 0 0;font-size:13px">Haz clic en «Gestionar» sobre cualquier documento para ver sus archivos adjuntos, subir nuevas versiones o aprobarlo en línea.</p>
+          </div>
         </div>
 
-        <div class="card stack-sm" style="padding:20px">
-          <h2>Evidencias y revisión</h2>
-          <p v-if="!selectedCompanyDoc" class="muted">Selecciona un documento de empresa para subir archivos, descargar o aprobar.</p>
-          <template v-else>
-            <h3>{{ selectedCompanyDoc.tipo_documento_nombre }} ({{ selectedCompanyDoc.estado }})</h3>
-            <label v-if="canUploadDoc" class="btn btn-ghost btn-sm" style="display:inline-block;cursor:pointer">
-              Subir evidencia (PDF/Imagen/Office)
-              <input type="file" style="display:none" @change="uploadCompanyDocFile" />
-            </label>
-            <ul v-if="companyDocFiles.length">
-              <li v-for="f in companyDocFiles" :key="f.id" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
-                <span>v{{ f.version }} · {{ f.nombre_original }}</span>
-                <button type="button" class="btn btn-ghost btn-sm" @click="documentsApi.downloadCompanyDocument(companyId, selectedCompanyDoc.id, f.id, f.nombre_original)">Descargar</button>
-              </li>
-            </ul>
-            <p v-else class="muted">Sin archivos cargados. No es posible aprobar sin evidencia.</p>
-
-            <div v-if="canApproveDoc" class="stack-sm" style="border-top:1px solid #e5e7eb;padding-top:12px">
-              <label class="stack-sm">Observación de revisión
-                <input v-model="companyReviewObs" placeholder="Obligatoria al rechazar" style="padding:8px" />
-              </label>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button type="button" class="btn btn-sm" :disabled="saving || !selectedCompanyDoc.tiene_evidencia" @click="reviewCompanyDoc('aprobado')">Aprobar</button>
-                <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewCompanyDoc('en_revision')">En revisión</button>
-                <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewCompanyDoc('rechazado')">Rechazar</button>
+        <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:8px">
+          <summary class="create-drawer__trigger">Registrar documento de empresa</summary>
+          <form class="stack-sm" @submit.prevent="createCompanyDoc">
+            <p v-if="!companyDocTypes.length" class="muted">Primero registra un tipo documental de categoría «Empresa» en Ajustes y mantenedores.</p>
+            <template v-else>
+              <div class="form-row-grid">
+                <label class="stack-sm">Tipo documental
+                  <select v-model="companyDocForm.tipo_documento_id" required style="padding:8px">
+                    <option value="">Selecciona…</option>
+                    <option v-for="t in companyDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                  </select>
+                </label>
+                <label class="stack-sm">Obra asociada (opcional)
+                  <select v-model="companyDocForm.obra_id" style="padding:8px">
+                    <option value="">General empresa</option>
+                    <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+                  </select>
+                </label>
+                <label class="stack-sm">Fecha emisión <input v-model="companyDocForm.fecha_emision" type="date" style="padding:8px" /></label>
+                <label class="stack-sm">Fecha vencimiento <input v-model="companyDocForm.fecha_vencimiento" type="date" style="padding:8px" /></label>
               </div>
-            </div>
-          </template>
+              <input v-model="companyDocForm.observaciones" placeholder="Observaciones" style="padding:8px" />
+              <div><button class="btn" type="submit" :disabled="saving">Crear documento empresarial</button></div>
+            </template>
+          </form>
+        </details>
+
+        <p v-if="loading">Cargando documentos…</p>
+        <p v-else-if="!companyDocs.length" class="muted">No hay documentos corporativos registrados.</p>
+        <div v-else class="tbl-wrap">
+          <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+            <thead>
+              <tr>
+                <th>Tipo documental</th>
+                <th>Alcance</th>
+                <th>Vencimiento</th>
+                <th>Estado</th>
+                <th>Evidencias</th>
+                <th style="text-align:right">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="doc in companyDocs" :key="doc.id">
+                <tr :style="selectedCompanyDoc?.id === doc.id ? 'background:#fde9dc33' : ''">
+                  <td><strong>{{ doc.tipo_documento_nombre }}</strong></td>
+                  <td>{{ doc.obra_nombre || 'General empresa' }}</td>
+                  <td style="white-space:nowrap">{{ doc.fecha_vencimiento || '—' }}</td>
+                  <td style="white-space:nowrap">
+                    <span class="badge" :style="statusBadgeStyle(doc.estado)">{{ formatStatusLabel(doc.estado) }}</span>
+                  </td>
+                  <td style="white-space:nowrap">{{ doc.tiene_evidencia ? `${doc.total_archivos || 1} archivo(s)` : 'Sin archivo' }}</td>
+                  <td style="text-align:right;white-space:nowrap">
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      :class="selectedCompanyDoc?.id === doc.id ? 'btn-primary' : 'btn-ghost'"
+                      @click="selectCompanyDocItem(doc)"
+                    >
+                      {{ selectedCompanyDoc?.id === doc.id ? 'Cerrar panel' : 'Gestionar' }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="selectedCompanyDoc?.id === doc.id">
+                  <td colspan="6" style="background:#faf9f6;padding:16px 20px;border-bottom:2px solid #e2ded5">
+                    <div class="form-row-grid" style="gap:20px;align-items:start">
+                      <div class="stack-sm">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                          <strong>Archivos de evidencia ({{ companyDocFiles.length }})</strong>
+                          <label v-if="canUploadDoc" class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+                            + Subir nueva versión (PDF/Imagen)
+                            <input type="file" style="display:none" @change="uploadCompanyDocFile" />
+                          </label>
+                        </div>
+                        <ul v-if="companyDocFiles.length" style="margin:0;padding:0;list-style:none;display:grid;gap:6px">
+                          <li v-for="f in companyDocFiles" :key="f.id" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#fff;border:1px solid #e2ded5;border-radius:8px;gap:8px;flex-wrap:wrap">
+                            <span><strong>v{{ f.version }}</strong> · {{ f.nombre_original }}</span>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="documentsApi.downloadCompanyDocument(companyId, selectedCompanyDoc.id, f.id, f.nombre_original)">Descargar PDF</button>
+                          </li>
+                        </ul>
+                        <p v-else class="muted" style="margin:0">Sin archivos cargados. Debes subir una evidencia antes de aprobar.</p>
+                      </div>
+
+                      <div v-if="canApproveDoc" class="stack-sm" style="background:#fff;padding:14px;border:1px solid #e2ded5;border-radius:10px">
+                        <strong>Revisión y aprobación documental</strong>
+                        <label class="stack-sm" style="font-size:12px">Observación de revisión
+                          <input v-model="companyReviewObs" placeholder="Comentario u observación (obligatoria al rechazar)" style="padding:8px;width:100%" />
+                        </label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                          <button type="button" class="btn btn-sm" :disabled="saving || !selectedCompanyDoc.tiene_evidencia" @click="reviewCompanyDoc('aprobado')">Aprobar vigente</button>
+                          <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewCompanyDoc('pendiente')">Marcar en revisión</button>
+                          <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewCompanyDoc('rechazado')">Rechazar</button>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
 
     <!-- ETAPA 8: EQUIPOS Y MAQUINARIA -->
     <div v-else-if="activeTab==='equipos'" class="stack">
-      <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:18px;align-items:start">
+      <div class="eq-layout">
         <div class="card stack-sm" style="padding:20px">
-          <h2>Catálogo de equipos y maquinaria</h2>
-          <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:10px">
+          <h2 style="margin:0">Catálogo de equipos ({{ equipmentList.length }})</h2>
+          <p class="muted" style="margin:0;font-size:12.5px">Selecciona un equipo o vehículo para ver su hoja de vida, asignaciones y documentos.</p>
+          <details v-if="canCreateDoc" class="create-drawer" style="margin-bottom:6px">
             <summary class="create-drawer__trigger">Registrar equipo o maquinaria</summary>
             <form class="stack-sm" @submit.prevent="saveNewEquipment">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="form-row-grid">
                 <input v-model.trim="equipmentForm.codigo" required placeholder="Código (ej. exc-01)" style="padding:8px" />
                 <input v-model.trim="equipmentForm.nombre" required placeholder="Retroexcavadora CAT 416" style="padding:8px" />
                 <input v-model="equipmentForm.tipo_equipo" placeholder="Tipo (Maquinaria, Vehículo…)" style="padding:8px" />
@@ -588,109 +759,175 @@ onMounted(loadAll);
             </form>
           </details>
           <p v-if="!equipmentList.length" class="muted">No hay equipos registrados en la empresa.</p>
-          <table v-else style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
-            <thead><tr><th>Nombre</th><th>Código / Patente</th><th>Tipo</th><th>Estado</th><th></th></tr></thead>
-            <tbody>
-              <tr v-for="eq in equipmentList" :key="eq.id">
-                <td>{{ eq.nombre }}</td>
-                <td>{{ eq.codigo }} {{ eq.patente_o_serie ? `· ${eq.patente_o_serie}` : '' }}</td>
-                <td>{{ eq.tipo_equipo }}</td>
-                <td>{{ eq.estado }}</td>
-                <td><button type="button" class="btn btn-ghost btn-sm" @click="selectEquipment(eq)">Ver ficha</button></td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else class="eq-selector-list">
+            <button
+              v-for="eq in equipmentList"
+              :key="eq.id"
+              type="button"
+              class="eq-selector-card"
+              :class="{ 'eq-selector-card--active': selectedEquipment?.id === eq.id }"
+              @click="selectEquipment(eq)"
+            >
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;width:100%">
+                <strong style="font-size:13.5px;line-height:1.3">{{ eq.nombre }}</strong>
+                <span class="badge" :style="statusBadgeStyle(eq.estado)" style="font-size:11px;padding:2px 8px;flex-shrink:0">
+                  {{ formatStatusLabel(eq.estado) }}
+                </span>
+              </div>
+              <div style="font-size:12px;color:var(--muted-fg,#6f6d68);display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                <code>{{ eq.codigo }}</code>
+                <span v-if="eq.patente_o_serie">· <strong>{{ eq.patente_o_serie }}</strong></span>
+                <span v-if="eq.tipo_equipo">· {{ eq.tipo_equipo }}</span>
+              </div>
+            </button>
+          </div>
         </div>
 
-        <div class="card stack-sm" style="padding:20px">
+        <div class="card stack-sm" style="padding:22px">
           <template v-if="!selectedEquipment">
-            <p class="muted">Selecciona un equipo para gestionar sus asignaciones a obras, documentos y cumplimiento.</p>
+            <p class="muted">Selecciona un equipo del catálogo izquierdo para gestionar sus asignaciones a obras, documentos y cumplimiento.</p>
           </template>
           <template v-else>
-            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;border-bottom:1px solid #e2ded5;padding-bottom:14px">
               <div>
-                <h2 style="margin:0">{{ selectedEquipment.nombre }} ({{ selectedEquipment.codigo }})</h2>
-                <p class="muted" style="margin:4px 0 0">{{ selectedEquipment.tipo_equipo }} · Estado: {{ selectedEquipment.estado }}</p>
+                <h2 style="margin:0">{{ selectedEquipment.nombre }}</h2>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">
+                  Código: <code>{{ selectedEquipment.codigo }}</code>
+                  <template v-if="selectedEquipment.patente_o_serie"> · Patente/Serie: <strong>{{ selectedEquipment.patente_o_serie }}</strong></template>
+                  · Tipo: {{ selectedEquipment.tipo_equipo }}
+                </p>
               </div>
-              <div v-if="equipmentCompliance" class="card" style="padding:10px 14px">
-                <small class="muted">Cumplimiento equipo</small>
-                <div><strong>{{ equipmentCompliance.porcentaje_cumplimiento }}% ({{ equipmentCompliance.estado_global }})</strong></div>
+              <div v-if="equipmentCompliance" style="background:#faf9f6;border:1px solid #e2ded5;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px">
+                <div>
+                  <small class="muted" style="display:block;font-size:11px">Cumplimiento equipo</small>
+                  <strong style="font-size:1.1rem">{{ equipmentCompliance.porcentaje_cumplimiento }}%</strong>
+                </div>
+                <span class="badge" :style="statusBadgeStyle(equipmentCompliance.estado_global)">
+                  {{ formatStatusLabel(equipmentCompliance.estado_global) }}
+                </span>
               </div>
             </div>
 
-            <h3>Asignaciones históricas a obras</h3>
-            <details v-if="canCreateDoc && obras.length" class="create-drawer create-drawer--inline" style="margin-bottom:8px">
-              <summary class="create-drawer__trigger">Asignar equipo a obra</summary>
-              <form class="stack-sm" @submit.prevent="saveEquipmentAssignment">
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                  <select v-model="assignmentForm.obra_id" required style="padding:8px">
-                    <option value="">Selecciona obra…</option>
-                    <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
-                  </select>
-                  <input v-model="assignmentForm.fecha_inicio" type="date" required style="padding:8px" />
-                  <input v-model="assignmentForm.responsable" placeholder="Responsable / Operador" style="padding:8px" />
-                </div>
-                <button class="btn btn-sm" type="submit" :disabled="saving">Asignar a obra</button>
-              </form>
-            </details>
-            <table v-if="equipmentAssignments.length" style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
-              <thead><tr><th>Obra</th><th>Responsable</th><th>Inicio</th><th>Término</th></tr></thead>
-              <tbody>
-                <tr v-for="a in equipmentAssignments" :key="a.id">
-                  <td>{{ a.obra_nombre }}</td>
-                  <td>{{ a.responsable || '—' }}</td>
-                  <td>{{ a.fecha_inicio }}</td>
-                  <td>{{ a.fecha_fin || 'Vigente' }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-else class="muted">Sin asignaciones a obras registradas.</p>
-
-            <h3 style="margin-top:14px">Documentación del equipo</h3>
-            <details v-if="canCreateDoc && equipmentDocTypes.length" class="create-drawer create-drawer--inline" style="margin-bottom:8px">
-              <summary class="create-drawer__trigger">Registrar documento del equipo</summary>
-              <form class="stack-sm" @submit.prevent="saveEquipmentDocument">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                  <select v-model="equipmentDocForm.tipo_documento_id" required style="padding:8px">
-                    <option value="">Tipo documental (Equipo)…</option>
-                    <option v-for="t in equipmentDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-                  </select>
-                  <input v-model="equipmentDocForm.fecha_vencimiento" type="date" style="padding:8px" />
-                </div>
-                <button class="btn btn-sm" type="submit" :disabled="saving">Crear documento de equipo</button>
-              </form>
-            </details>
-            <table v-if="equipmentDocs.length" style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
-              <thead><tr><th>Documento</th><th>Vencimiento</th><th>Estado</th><th>Evidencia</th><th></th></tr></thead>
-              <tbody>
-                <tr v-for="d in equipmentDocs" :key="d.id">
-                  <td>{{ d.tipo_documento_nombre }}</td>
-                  <td>{{ d.fecha_vencimiento || '—' }}</td>
-                  <td>{{ d.estado }}</td>
-                  <td>{{ d.tiene_evidencia ? `${d.total_archivos} archivo(s)` : 'Sin archivo' }}</td>
-                  <td><button type="button" class="btn btn-ghost btn-sm" @click="selectEquipmentDocItem(d)">Revisar</button></td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-else class="muted">Sin documentos registrados para este equipo.</p>
-
-            <div v-if="selectedEquipmentDoc" class="card stack-sm" style="padding:14px;background:#f9fafb">
-              <h4>Evidencias y aprobación: {{ selectedEquipmentDoc.tipo_documento_nombre }}</h4>
-              <label v-if="canUploadDoc" class="btn btn-ghost btn-sm" style="display:inline-block;cursor:pointer">
-                Subir archivo de equipo
-                <input type="file" style="display:none" @change="uploadEquipmentDocFile" />
-              </label>
-              <ul v-if="equipmentDocFiles.length">
-                <li v-for="f in equipmentDocFiles" :key="f.id" style="display:flex;justify-content:space-between;padding:4px 0">
-                  <span>v{{ f.version }} · {{ f.nombre_original }}</span>
-                  <button type="button" class="btn btn-ghost btn-sm" @click="documentsApi.downloadEquipmentDocument(companyId, selectedEquipment.id, selectedEquipmentDoc.id, f.id, f.nombre_original)">Descargar</button>
-                </li>
-              </ul>
-              <div v-if="canApproveDoc" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input v-model="equipmentReviewObs" placeholder="Observación de revisión" style="padding:6px;flex:1" />
-                <button type="button" class="btn btn-sm" :disabled="saving || !selectedEquipmentDoc.tiene_evidencia" @click="reviewEquipmentDoc('aprobado')">Aprobar</button>
-                <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewEquipmentDoc('rechazado')">Rechazar</button>
+            <div class="stack-sm">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                <h3 style="margin:0">Asignaciones históricas a obras</h3>
               </div>
+              <details v-if="canCreateDoc && obras.length" class="create-drawer create-drawer--inline" style="margin-bottom:4px">
+                <summary class="create-drawer__trigger">Asignar equipo a obra</summary>
+                <form class="stack-sm" @submit.prevent="saveEquipmentAssignment">
+                  <div class="form-row-grid">
+                    <select v-model="assignmentForm.obra_id" required style="padding:8px">
+                      <option value="">Selecciona obra…</option>
+                      <option v-for="o in obras" :key="o.id" :value="o.id">{{ o.nombre }}</option>
+                    </select>
+                    <input v-model="assignmentForm.fecha_inicio" type="date" required style="padding:8px" />
+                    <input v-model="assignmentForm.responsable" placeholder="Responsable / Operador" style="padding:8px" />
+                  </div>
+                  <div><button class="btn btn-sm" type="submit" :disabled="saving">Asignar a obra</button></div>
+                </form>
+              </details>
+              <div v-if="equipmentAssignments.length" class="tbl-wrap">
+                <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                  <thead><tr><th>Obra</th><th>Operador / Responsable</th><th>Inicio</th><th>Estado / Término</th></tr></thead>
+                  <tbody>
+                    <tr v-for="a in equipmentAssignments" :key="a.id">
+                      <td><strong>{{ a.obra_nombre }}</strong></td>
+                      <td>{{ a.responsable || '—' }}</td>
+                      <td style="white-space:nowrap">{{ a.fecha_inicio }}</td>
+                      <td style="white-space:nowrap">
+                        <span class="badge" :style="a.fecha_fin ? statusBadgeStyle('neutral') : statusBadgeStyle('operativo')">
+                          {{ a.fecha_fin || 'Vigente en obra' }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="muted">Sin asignaciones a obras registradas.</p>
+            </div>
+
+            <div class="stack-sm" style="margin-top:8px">
+              <h3 style="margin:0">Documentación técnica y legal del equipo ({{ equipmentDocs.length }})</h3>
+              <details v-if="canCreateDoc && equipmentDocTypes.length" class="create-drawer create-drawer--inline" style="margin-bottom:4px">
+                <summary class="create-drawer__trigger">Registrar documento del equipo</summary>
+                <form class="stack-sm" @submit.prevent="saveEquipmentDocument">
+                  <div class="form-row-grid">
+                    <select v-model="equipmentDocForm.tipo_documento_id" required style="padding:8px">
+                      <option value="">Tipo documental (Equipo)…</option>
+                      <option v-for="t in equipmentDocTypes" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                    </select>
+                    <input v-model="equipmentDocForm.fecha_vencimiento" type="date" style="padding:8px" />
+                  </div>
+                  <div><button class="btn btn-sm" type="submit" :disabled="saving">Crear documento de equipo</button></div>
+                </form>
+              </details>
+              <div v-if="equipmentDocs.length" class="tbl-wrap">
+                <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+                  <thead>
+                    <tr>
+                      <th>Documento</th>
+                      <th>Vencimiento</th>
+                      <th>Estado</th>
+                      <th>Evidencia</th>
+                      <th style="text-align:right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template v-for="d in equipmentDocs" :key="d.id">
+                      <tr :style="selectedEquipmentDoc?.id === d.id ? 'background:#fde9dc33' : ''">
+                        <td><strong>{{ d.tipo_documento_nombre }}</strong></td>
+                        <td style="white-space:nowrap">{{ d.fecha_vencimiento || '—' }}</td>
+                        <td style="white-space:nowrap">
+                          <span class="badge" :style="statusBadgeStyle(d.estado)">{{ formatStatusLabel(d.estado) }}</span>
+                        </td>
+                        <td style="white-space:nowrap">{{ d.tiene_evidencia ? `${d.total_archivos || 1} archivo(s)` : 'Sin archivo' }}</td>
+                        <td style="text-align:right;white-space:nowrap">
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            :class="selectedEquipmentDoc?.id === d.id ? 'btn-primary' : 'btn-ghost'"
+                            @click="selectEquipmentDocItem(d)"
+                          >
+                            {{ selectedEquipmentDoc?.id === d.id ? 'Cerrar' : 'Revisar' }}
+                          </button>
+                        </td>
+                      </tr>
+                      <tr v-if="selectedEquipmentDoc?.id === d.id">
+                        <td colspan="5" style="background:#faf9f6;padding:14px 16px;border-bottom:2px solid #e2ded5">
+                          <div class="form-row-grid" style="gap:16px;align-items:start">
+                            <div class="stack-sm">
+                              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                                <strong>Evidencias adjuntas ({{ equipmentDocFiles.length }})</strong>
+                                <label v-if="canUploadDoc" class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+                                  + Subir archivo
+                                  <input type="file" style="display:none" @change="uploadEquipmentDocFile" />
+                                </label>
+                              </div>
+                              <ul v-if="equipmentDocFiles.length" style="margin:0;padding:0;list-style:none;display:grid;gap:6px">
+                                <li v-for="f in equipmentDocFiles" :key="f.id" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#fff;border:1px solid #e2ded5;border-radius:8px;gap:8px">
+                                  <span><strong>v{{ f.version }}</strong> · {{ f.nombre_original }}</span>
+                                  <button type="button" class="btn btn-ghost btn-sm" @click="documentsApi.downloadEquipmentDocument(companyId, selectedEquipment.id, selectedEquipmentDoc.id, f.id, f.nombre_original)">Descargar</button>
+                                </li>
+                              </ul>
+                              <p v-else class="muted" style="margin:0">Sin archivos adjuntos.</p>
+                            </div>
+                            <div v-if="canApproveDoc" class="stack-sm" style="background:#fff;padding:12px;border:1px solid #e2ded5;border-radius:8px">
+                              <strong>Aprobación documental</strong>
+                              <input v-model="equipmentReviewObs" placeholder="Observación de revisión" style="padding:7px;width:100%" />
+                              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <button type="button" class="btn btn-sm" :disabled="saving || !selectedEquipmentDoc.tiene_evidencia" @click="reviewEquipmentDoc('aprobado')">Aprobar</button>
+                                <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewEquipmentDoc('pendiente')">En revisión</button>
+                                <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="reviewEquipmentDoc('rechazado')">Rechazar</button>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="muted">Sin documentos registrados para este equipo.</p>
             </div>
           </template>
         </div>
@@ -707,7 +944,7 @@ onMounted(loadAll);
               <option v-for="tpl in checklistTemplates" :key="tpl" :value="tpl">{{ tpl }}</option>
             </select>
           </label>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="form-row-grid">
             <label class="stack-sm">Obra / Centro de trabajo
               <select v-model="checklistForm.obra_id" style="padding:8px">
                 <option value="">General empresa</option>
@@ -828,7 +1065,35 @@ onMounted(loadAll);
             </select>
           </label>
           <button class="btn" type="submit" :disabled="loadingField">{{ loadingField ? 'Buscando…' : 'Consultar en terreno' }}</button>
+          <button type="button" class="btn btn-ghost" @click="showQrScanner = !showQrScanner; if (!showQrScanner) stopQrCamera()">
+            {{ showQrScanner ? 'Cerrar lector QR' : '📷 Escanear QR Cédula / Credencial' }}
+          </button>
         </form>
+
+        <div v-if="showQrScanner" class="card stack-sm" style="padding:16px;background:#faf9f6;border:1px dashed #171716;margin-top:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div>
+              <strong>Lector de Código QR de Cédula de Identidad Chilena (Registro Civil) o Credencial TOCAL</strong>
+              <p class="muted" style="margin:2px 0 0;font-size:12px">
+                Escanea con la cámara del teléfono/tablet o pega la URL del QR del carnet de identidad (<code>?RUN=12345678-5</code>) o credencial (<code>TOCAL-0001</code>) para abrir su Hoja de Vida al instante.
+              </p>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button v-if="!qrCameraActive" type="button" class="btn btn-primary btn-sm" @click="startQrCamera">Activar cámara QR</button>
+              <button v-else type="button" class="btn btn-ghost btn-sm" @click="stopQrCamera">Detener cámara</button>
+            </div>
+          </div>
+          <video v-if="qrCameraActive" ref="qrCameraVideo" muted playsinline style="width:100%;max-width:360px;border-radius:8px;border:1px solid #171716;background:#000" />
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input
+              v-model.trim="qrRawInput"
+              placeholder="Pega o pistolea aquí el QR de la Cédula (ej. https://portal.sidiv.registrocivil.cl/...?RUN=11.111.111-1) o TOCAL-0001"
+              style="flex:1;min-width:240px;padding:8px"
+              @keyup.enter="applyQrScanText(qrRawInput)"
+            />
+            <button type="button" class="btn btn-sm" @click="applyQrScanText(qrRawInput)">Procesar QR y ver Hoja de Vida</button>
+          </div>
+        </div>
       </div>
 
       <!-- RF-07: SEMÁFORO DE COBERTURA DE PROCEDIMIENTOS DE TRABAJO SEGURO (PTS) -->
@@ -939,24 +1204,26 @@ onMounted(loadAll);
               </small>
             </div>
           </div>
-          <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
-            <thead><tr><th>Código</th><th>Norma / Referencia</th><th>Exigencia Fiscalizable</th><th>Evidencia en Plataforma</th><th>Estado</th></tr></thead>
-            <tbody>
-              <tr v-for="cap in dossierData.capitulos_fuf_ds44" :key="cap.codigo">
-                <td><code>{{ cap.codigo }}</code></td>
-                <td><strong>{{ cap.norma }}</strong></td>
-                <td><strong>{{ cap.titulo }}</strong><br><small class="muted">{{ cap.descripcion }}</small></td>
-                <td>{{ cap.evidencia }}</td>
-                <td>
-                  <span class="badge" :style="{ background: cap.estado === 'cumple' ? '#dcfce7' : cap.estado === 'observado' ? '#fef3c7' : '#fee2e2', color: '#111827' }">
-                    {{ cap.estado === 'cumple' ? 'Al día' : cap.estado === 'observado' ? 'Con observaciones' : 'Pendiente' }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="tbl-wrap">
+            <table style="width:100%;border-collapse:collapse;text-align:left;font-size:13px">
+              <thead><tr><th>Código</th><th>Norma / Referencia</th><th>Exigencia Fiscalizable</th><th>Evidencia en Plataforma</th><th>Estado</th></tr></thead>
+              <tbody>
+                <tr v-for="cap in dossierData.capitulos_fuf_ds44" :key="cap.codigo">
+                  <td><code>{{ cap.codigo }}</code></td>
+                  <td><strong>{{ cap.norma }}</strong></td>
+                  <td><strong>{{ cap.titulo }}</strong><br><small class="muted">{{ cap.descripcion }}</small></td>
+                  <td>{{ cap.evidencia }}</td>
+                  <td>
+                    <span class="badge" :style="{ background: cap.estado === 'cumple' ? '#dcfce7' : cap.estado === 'observado' ? '#fef3c7' : '#fee2e2', color: '#111827' }">
+                      {{ cap.estado === 'cumple' ? 'Al día' : cap.estado === 'observado' ? 'Con observaciones' : 'Pendiente' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:24px;padding-top:18px;text-align:center;font-size:12px">
+          <div class="form-row-grid" style="gap:32px;margin-top:24px;padding-top:18px;text-align:center;font-size:12px">
             <div style="border-top:1px solid #171716;padding-top:8px">
               <strong>Departamento de Prevención de Riesgos</strong><br>
               <span>Constructora Tocal Limitada</span><br>
@@ -973,4 +1240,49 @@ onMounted(loadAll);
     </div>
   </section>
 </template>
+
+<style scoped>
+.eq-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.eq-selector-list {
+  display: grid;
+  gap: 8px;
+}
+
+.eq-selector-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid var(--border, #e2ded5);
+  border-radius: 12px;
+  background: var(--surface-subtle, #faf9f6);
+  color: inherit;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.eq-selector-card:hover {
+  border-color: var(--border-strong, #d4cfc3);
+  background: #ffffff;
+}
+
+.eq-selector-card--active {
+  border-color: var(--naranjo, #f26b21);
+  background: var(--naranjo-soft, #fde9dc);
+  box-shadow: 0 2px 8px rgba(242, 107, 33, 0.12);
+}
+
+@media (max-width: 960px) {
+  .eq-layout {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
 

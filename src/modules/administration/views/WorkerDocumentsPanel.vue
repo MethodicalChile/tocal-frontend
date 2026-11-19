@@ -31,6 +31,29 @@ let seq = 0;
 
 const workerTypes = computed(() => types.value.filter(t => t.categoria === 'trabajador' && t.activo));
 const selectedType = computed(() => workerTypes.value.find(t => t.id === form.value.tipo_documento_id));
+
+function applyQuickValidityMonths(months) {
+  const baseStr = form.value.fecha_emision || new Date().toISOString().slice(0, 10);
+  if (!form.value.fecha_emision) form.value.fecha_emision = baseStr;
+  const d = new Date(`${baseStr}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return;
+  d.setMonth(d.getMonth() + Number(months));
+  form.value.fecha_vencimiento = d.toISOString().slice(0, 10);
+}
+
+watch(() => form.value.tipo_documento_id, () => {
+  const st = selectedType.value;
+  if (!st || !st.requiere_vencimiento) return;
+  if (!form.value.fecha_emision) {
+    form.value.fecha_emision = new Date().toISOString().slice(0, 10);
+  }
+  if (!form.value.fecha_vencimiento) {
+    const code = (st.codigo || '').toLowerCase();
+    // Sugerencia inteligente de vigencia según tipo de examen/documento (6m, 12m, 24m)
+    const suggestedMonths = code.includes('antecedentes') ? 6 : (code.includes('ocupacional') || code.includes('psicosensometrico') || code.includes('altura') ? 12 : 12);
+    applyQuickValidityMonths(suggestedMonths);
+  }
+});
 const obras = computed(() => {
   const seen = new Set();
   return props.assignments.filter(item => {
@@ -325,6 +348,12 @@ async function review(doc, nextStatus) {
               </label>
               <label class="field">Fecha de vencimiento {{ selectedType?.requiere_vencimiento ? '(obligatoria)' : '(opcional)' }}
                 <input v-model="form.fecha_vencimiento" type="date" :required="Boolean(selectedType?.requiere_vencimiento)" :disabled="Boolean(working)" />
+                <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px" @click="applyQuickValidityMonths(6)">+6 meses</button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px" @click="applyQuickValidityMonths(12)">+1 año</button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px" @click="applyQuickValidityMonths(24)">+2 años</button>
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px" @click="applyQuickValidityMonths(36)">+3 años</button>
+                </div>
               </label>
               <label class="field field--wide">Observaciones
                 <textarea v-model="form.observaciones" maxlength="2000" rows="2" :disabled="Boolean(working)" />

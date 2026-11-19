@@ -27,6 +27,66 @@ const prevSaving = ref(false);
 const prevFeedback = ref('');
 const prevError = ref('');
 const trainingForm = ref({ tipo_capacitacion_id: '', obra_id: '', fecha_realizacion: '', relator: '', calificacion: 100, aprobado: true, firmado_asistencia: true, estado: 'vigente', observaciones: '' });
+const showQuizModal = ref(false);
+const quizAnswers = ref([0, 0, 0]);
+
+const activeQuizQuestions = computed(() => {
+  const selected = trainingTypes.value.find(t => String(t.id) === String(trainingForm.value.tipo_capacitacion_id));
+  const name = (selected?.nombre || '').toLowerCase();
+  if (name.includes('altura') || name.includes('andamio')) {
+    return [
+      { q: '1. ¿A partir de qué altura se exige uso obligatorio de arnés de cuerpo completo con doble cabo de vida?', opts: ['Sobre 1,8 metros de altura (Correcta)', 'Solo sobre 5 metros', 'Solo cuando no hay casco'], correct: 0 },
+      { q: '2. ¿Qué se debe verificar antes de subir a un andamio o plataforma de trabajo?', opts: ['Que tenga tarjeta verde de habilitación, barandas perimetrales y puntos de anclaje firmes (Correcta)', 'Que esté recién pintado', 'No requiere revisión previa'], correct: 0 },
+      { q: '3. ¿Qué examen médico de mutualidad debe estar vigente para trabajar en altura física?', opts: ['Certificado de Aptitud para Altura Física vigente (Correcta)', 'Licencia clase D', 'Ninguno'], correct: 0 },
+    ];
+  }
+  if (name.includes('eléctric') || name.includes('electric') || name.includes('tablero')) {
+    return [
+      { q: '1. ¿Qué debe hacer un trabajador si detecta una extensión eléctrica con cables expuestos o sin enchufe industrial?', opts: ['Retirarla de inmediato, informar al supervisor y verificar el código de colores del mes (Correcta)', 'Repararla con cinta adhesiva común', 'Seguir usándola con cuidado'], correct: 0 },
+      { q: '2. ¿Quién está autorizado para intervenir tableros eléctricos provisorios en obra?', opts: ['Únicamente personal eléctrico autorizado SEC con bloqueo de energía (Correcta)', 'Cualquier jornal o maestro', 'El bodeguero'], correct: 0 },
+      { q: '3. ¿Qué protección debe tener todo tablero eléctrico provisional en terreno?', opts: ['Protector diferencial, puesta a tierra, tapa cerrada y señalización de riesgo eléctrico (Correcta)', 'Solo un candado', 'Ninguna si es de baja tensión'], correct: 0 },
+    ];
+  }
+  if (name.includes('caliente') || name.includes('soldadura') || name.includes('extintor')) {
+    return [
+      { q: '1. ¿Qué elemento de emergencia debe estar siempre presente en el punto de trabajo en caliente o soldadura?', opts: ['Extintor portátil operativo y certificado, más biombo o carpa ignífuga (Correcta)', 'Un balde con arena a 50 metros', 'Solo guantes de hilo'], correct: 0 },
+      { q: '2. ¿Qué se debe despejar antes de usar esmeril angular o máquina de soldar?', opts: ['Todo material inflamable o combustible en el radio de proyección de chispas (Correcta)', 'Solo las herramientas manuales', 'Nada si es al aire libre'], correct: 0 },
+      { q: '3. ¿Qué EPP específicos requiere el soldador además del kit básico?', opts: ['Careta de soldador, coleto/chaqueta de cuero, guantes mosqueteros y respirador para humos metálicos (Correcta)', 'Solo lentes transparentes', 'Tapones auditivos únicamente'], correct: 0 },
+    ];
+  }
+  if (name.includes('minsal') || name.includes('sílice') || name.includes('silice') || name.includes('ruido')) {
+    return [
+      { q: '1. ¿Cómo se previene la exposición a polvo con sílice (Protocolo PLANESI) en corte o demolición?', opts: ['Humectación de la tarea, aspiración en origen y uso de respirador medio rostro con filtro P100 (Correcta)', 'Usando mascarilla de género o papel', 'Soplando el polvo con aire comprimido'], correct: 0 },
+      { q: '2. ¿Cuándo es obligatorio usar protección auditiva según el protocolo PREXOR?', opts: ['Siempre que se operen o transite cerca de fuentes de ruido sobre 80 dB(A) (Correcta)', 'Solo cuando duele el oído', 'Nunca en exteriores'], correct: 0 },
+      { q: '3. ¿Qué medidas exige el protocolo RUVS ante exposición solar directa?', opts: ['Uso de bloqueador solar FPS 50+, legionario/cubrenuca, manga larga, lentes UV e hidratación (Correcta)', 'Trabajar sin camisa', 'Solo usar casco'], correct: 0 },
+    ];
+  }
+  return [
+    { q: '1. ¿Qué debe hacer el trabajador antes de iniciar cualquier tarea crítica en terreno (DS 44)?', opts: ['Participar en la Charla de 5 Minutos / AST, conocer el PTS y verificar sus 5 EPP básicos (Correcta)', 'Empezar de inmediato sin avisar al capataz', 'Pedir permiso al bodeguero'], correct: 0 },
+    { q: '2. ¿Qué derecho y obligación tiene el trabajador si detecta un riesgo grave e inminente para su vida?', opts: ['Detener la tarea e informar de inmediato a su supervisor directo y Prevención de Riesgos (Correcta)', 'Ocultar la condición para no atrasar la obra', 'Continuar trabajando sin EPP'], correct: 0 },
+    { q: '3. ¿A quién debe informar de inmediato cualquier incidente o accidente del trabajo (Ley 16.744)?', opts: ['A su jefatura directa y al Experto en Prevención de Riesgos en la misma jornada (Correcta)', 'Avisar una semana después', 'No informarlo si parece leve'], correct: 0 },
+  ];
+});
+
+function evaluateQuiz() {
+  const qs = activeQuizQuestions.value;
+  let hits = 0;
+  qs.forEach((item, idx) => {
+    if (Number(quizAnswers.value[idx]) === item.correct) hits++;
+  });
+  const score = Math.round((hits / qs.length) * 100);
+  trainingForm.value.calificacion = score;
+  trainingForm.value.aprobado = hits >= 2;
+  const tag = `Prueba DS 44 (3 preguntas): ${hits}/${qs.length} correctas (${score}%)`;
+  if (!trainingForm.value.observaciones.includes('Prueba DS 44')) {
+    trainingForm.value.observaciones = trainingForm.value.observaciones
+      ? `${trainingForm.value.observaciones} | ${tag}`
+      : tag;
+  } else {
+    trainingForm.value.observaciones = tag;
+  }
+  showQuizModal.value = false;
+}
 const eppForm = ref({ categoria_id: '', descripcion_elemento: '', talla: '', cantidad: 1, fecha_entrega: '', firmado_recepcion: true });
 const showQrCredential = ref(false);
 const showPrintableActa = ref(false);
@@ -430,7 +490,7 @@ onBeforeUnmount(() => { sequence++; });
             En cumplimiento del Decreto Supremo N° 44, Art. 184 del Código del Trabajo y Ley N° 16.744, se deja constancia de que el trabajador individualizado ha recibido la Obligación de Informar los Riesgos Laborales (ODI / IRL), ejemplar del Reglamento Interno de Orden, Higiene y Seguridad (RIOHS), difusión de Procedimientos de Trabajo Seguro (PTS) y los Elementos de Protección Personal (EPP) detallados a continuación:
           </p>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-row-grid" style="gap:16px">
             <div>
               <h4 style="margin:0 0 6px;font-size:13px">1. Inducciones, Charlas y PTS Registrados ({{ trainings.length }})</h4>
               <ul v-if="trainings.length" style="margin:0;padding-left:18px;font-size:12px">
@@ -451,7 +511,7 @@ onBeforeUnmount(() => { sequence++; });
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:28px;padding-top:20px;text-align:center;font-size:12px;align-items:end">
+          <div class="form-row-grid" style="gap:32px;margin-top:28px;padding-top:20px;text-align:center;font-size:12px;align-items:end">
             <div>
               <div v-if="workerSignatureDataUrl" style="margin-bottom:6px">
                 <img :src="workerSignatureDataUrl" alt="Firma digital del trabajador" style="max-height:70px;max-width:220px;object-fit:contain;margin:0 auto;display:block" />
@@ -548,8 +608,8 @@ onBeforeUnmount(() => { sequence++; });
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px">
-          <div>
+        <div class="split-grid">
+          <div style="min-width:0">
             <h3>Capacitaciones, Inducciones y Difusión PTS (RF-07 / RF-08)</h3>
             <details v-if="canManagePrev && trainingTypes.length" class="create-drawer create-drawer--inline" style="margin-bottom:12px">
               <summary class="create-drawer__trigger">Registrar capacitación / difusión PTS con evaluación</summary>
@@ -558,7 +618,7 @@ onBeforeUnmount(() => { sequence++; });
                   <option value="">Selecciona curso, inducción o PTS…</option>
                   <option v-for="tt in trainingTypes" :key="tt.id" :value="tt.id">{{ tt.nombre }}</option>
                 </select>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="form-row-grid">
                   <label style="font-size:12px">Fecha realización
                     <input v-model="trainingForm.fecha_realizacion" type="date" required style="padding:8px;width:100%" />
                   </label>
@@ -566,7 +626,7 @@ onBeforeUnmount(() => { sequence++; });
                     <input v-model="trainingForm.relator" placeholder="Nombre relator / Mutual" style="padding:8px;width:100%" />
                   </label>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:center">
+                <div class="form-row-grid" style="align-items:center">
                   <label style="font-size:12px">Nota Evaluación (%)
                     <input v-model.number="trainingForm.calificacion" type="number" min="0" max="100" style="padding:8px;width:100%" />
                   </label>
@@ -577,28 +637,46 @@ onBeforeUnmount(() => { sequence++; });
                     <input v-model="trainingForm.firmado_asistencia" type="checkbox" /> Firma asistencia
                   </label>
                 </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="showQuizModal = !showQuizModal">
+                    {{ showQuizModal ? 'Ocultar prueba de 3 preguntas' : '📝 Aplicar Prueba de 3 Preguntas en Terreno (DS 44)' }}
+                  </button>
+                  <small class="muted" style="font-size:11px">Verifica comprensión real del trabajador (exigencia DS 44)</small>
+                </div>
+                <div v-if="showQuizModal" class="card stack-sm" style="padding:12px;background:#faf9f6;border:1px solid #d4cfc3">
+                  <strong style="font-size:12.5px">Cuestionario de Verificación de Aprendizaje (3 Preguntas)</strong>
+                  <div v-for="(item, qIdx) in activeQuizQuestions" :key="qIdx" class="stack-sm" style="font-size:12px">
+                    <div><strong>{{ item.q }}</strong></div>
+                    <select v-model.number="quizAnswers[qIdx]" style="padding:6px;width:100%;font-size:12px">
+                      <option v-for="(opt, oIdx) in item.opts" :key="oIdx" :value="oIdx">{{ opt }}</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn btn-primary btn-sm" @click="evaluateQuiz">Calificar respuestas y volcar nota</button>
+                </div>
                 <input v-model="trainingForm.observaciones" placeholder="Observaciones adicionales (opcional)" style="padding:8px" />
                 <button class="btn btn-sm" type="submit" :disabled="prevSaving">Guardar capacitación y evaluación</button>
               </form>
             </details>
-            <table v-if="trainings.length" style="width:100%;text-align:left;border-collapse:collapse;font-size:13px">
-              <thead><tr><th>Curso / PTS</th><th>Realización</th><th>Vencimiento</th><th>Evaluación / Firma</th></tr></thead>
-              <tbody>
-                <tr v-for="t in trainings" :key="t.id">
-                  <td><strong>{{ t.tipo_capacitacion_nombre }}</strong><br><small class="muted">{{ t.relator || 'Relator interno' }}</small></td>
-                  <td>{{ fecha(t.fecha_realizacion) }}</td>
-                  <td>{{ fecha(t.fecha_vencimiento) }}</td>
-                  <td>
-                    <span class="badge">{{ t.estado }}</span>
-                    <div v-if="t.observaciones" style="font-size:11px;color:#475569;margin-top:2px">{{ t.observaciones }}</div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div v-if="trainings.length" class="tbl-wrap">
+              <table style="width:100%;text-align:left;border-collapse:collapse;font-size:13px">
+                <thead><tr><th>Curso / PTS</th><th>Realización</th><th>Vencimiento</th><th>Evaluación / Firma</th></tr></thead>
+                <tbody>
+                  <tr v-for="t in trainings" :key="t.id">
+                    <td><strong>{{ t.tipo_capacitacion_nombre }}</strong><br><small class="muted">{{ t.relator || 'Relator interno' }}</small></td>
+                    <td>{{ fecha(t.fecha_realizacion) }}</td>
+                    <td>{{ fecha(t.fecha_vencimiento) }}</td>
+                    <td>
+                      <span class="badge">{{ t.estado }}</span>
+                      <div v-if="t.observaciones" style="font-size:11px;color:#475569;margin-top:2px">{{ t.observaciones }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <p v-else class="muted">Sin capacitaciones ni difusiones de PTS registradas.</p>
           </div>
 
-          <div>
+          <div style="min-width:0">
             <h3>Entregas y Reposición de EPP (RF-09)</h3>
             <details v-if="canManagePrev && eppCategories.length" class="create-drawer create-drawer--inline" style="margin-bottom:12px">
               <summary class="create-drawer__trigger">Registrar entrega o recambio de EPP</summary>
@@ -607,7 +685,7 @@ onBeforeUnmount(() => { sequence++; });
                   <option value="">Selecciona categoría de EPP…</option>
                   <option v-for="ec in eppCategories" :key="ec.id" :value="ec.id">{{ ec.nombre }}</option>
                 </select>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <div class="form-row-grid">
                   <input v-model="eppForm.fecha_entrega" type="date" required style="padding:8px" />
                   <input v-model="eppForm.talla" placeholder="Talla / Serie" style="padding:8px" />
                   <input v-model.number="eppForm.cantidad" type="number" min="1" required style="padding:8px" />
@@ -618,17 +696,19 @@ onBeforeUnmount(() => { sequence++; });
                 <button class="btn btn-sm" type="submit" :disabled="prevSaving">Registrar entrega EPP</button>
               </form>
             </details>
-            <table v-if="eppDeliveries.length" style="width:100%;text-align:left;border-collapse:collapse;font-size:13px">
-              <thead><tr><th>Elemento EPP</th><th>Talla / Cant.</th><th>Entrega</th><th>Reposición</th></tr></thead>
-              <tbody>
-                <tr v-for="e in eppDeliveries" :key="e.id">
-                  <td><strong>{{ e.categoria_epp_nombre || e.categoria_nombre || e.elemento }}</strong><br><small class="muted">{{ e.firmado_recepcion ? 'Recepción firmada' : 'Pendiente firma' }}</small></td>
-                  <td>{{ e.talla_o_serie || e.talla || '—' }} · x{{ e.cantidad }}</td>
-                  <td>{{ fecha(e.fecha_entrega) }}</td>
-                  <td>{{ fecha(e.fecha_vencimiento) }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <div v-if="eppDeliveries.length" class="tbl-wrap">
+              <table style="width:100%;text-align:left;border-collapse:collapse;font-size:13px">
+                <thead><tr><th>Elemento EPP</th><th>Talla / Cant.</th><th>Entrega</th><th>Reposición</th></tr></thead>
+                <tbody>
+                  <tr v-for="e in eppDeliveries" :key="e.id">
+                    <td><strong>{{ e.categoria_epp_nombre || e.categoria_nombre || e.elemento }}</strong><br><small class="muted">{{ e.firmado_recepcion ? 'Recepción firmada' : 'Pendiente firma' }}</small></td>
+                    <td>{{ e.talla_o_serie || e.talla || '—' }} · x{{ e.cantidad }}</td>
+                    <td>{{ fecha(e.fecha_entrega) }}</td>
+                    <td>{{ fecha(e.fecha_vencimiento) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <p v-else class="muted">Sin entregas de EPP registradas.</p>
           </div>
         </div>

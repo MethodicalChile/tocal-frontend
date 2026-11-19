@@ -14,19 +14,207 @@ const companyInfo = ref(null);
 const companyForm = ref({ nombre: '', rut: '', activa: true });
 const newCompanyForm = ref({ nombre: '', rut: '', sembrar_catalogos: true });
 const roles = ref([]), permissions = ref([]), members = ref([]), assignments = ref([]), auditLogs = ref([]);
-const auditSearch = ref(''), auditEntityFilter = ref('');
+const auditSearch = ref(''), auditEntityFilter = ref(''), copiedAuditId = ref(''), activeAuditLog = ref(null);
+
+const ENTITY_LABELS = {
+  AlertaVencimiento: 'Alerta de Vencimiento',
+  DocumentoEmpresa: 'Documento de Empresa',
+  DocumentoEquipo: 'Documento de Equipo / Maquinaria',
+  DocumentoTrabajador: 'Documento de Trabajador',
+  ChecklistInspeccion: 'Checklist / Inspección (RF-12)',
+  CapacitacionTrabajador: 'Capacitación / Difusión PTS',
+  EntregaEppTrabajador: 'Entrega de EPP (RF-09)',
+  Rol: 'Rol de Seguridad (RBAC)',
+  AsignacionRol: 'Asignación de Rol',
+  MembresiaEmpresa: 'Membresía de Empresa',
+  Empresa: 'Empresa',
+  Obra: 'Obra / Centro de Trabajo',
+  Trabajador: 'Ficha de Trabajador',
+};
+
+const ACTION_LABELS = {
+  'catalogos.sembrar_base_tocal': 'Inicializar catálogos base TOCAL',
+  'alertas.vencimiento.marcar_leida': 'Marcar alerta como leída',
+  'alertas.vencimiento.generar': 'Generar alertas de vencimiento',
+  'documentos.empresa.aprobar': 'Aprobar documento de empresa',
+  'documentos.empresa.rechazar': 'Rechazar documento de empresa',
+  'documentos.empresa.pendiente': 'Pasar documento de empresa a revisión',
+  'documentos.empresa.en_revision': 'Pasar documento de empresa a revisión',
+  'documentos.empresa.crear': 'Registrar documento de empresa',
+  'documentos.equipo.aprobar': 'Aprobar documento de equipo',
+  'documentos.equipo.rechazar': 'Rechazar documento de equipo',
+  'documentos.equipo.pendiente': 'Pasar documento de equipo a revisión',
+  'documentos.equipo.en_revision': 'Pasar documento de equipo a revisión',
+  'documentos.equipo.crear': 'Registrar documento de equipo',
+  'documentos.trabajador.aprobar': 'Aprobar documento laboral',
+  'documentos.trabajador.rechazar': 'Rechazar documento laboral',
+  'documentos.trabajador.en_revision': 'Pasar documento laboral a revisión',
+  'rol.crear': 'Crear rol de seguridad',
+  'rol.permisos_actualizar': 'Actualizar matriz de permisos',
+};
+
+const DETAIL_KEY_LABELS = {
+  leida: 'Estado lectura',
+  estado: 'Nuevo estado',
+  estado_anterior: 'Estado anterior',
+  observacion_revision: 'Observación',
+  observacion: 'Observación',
+  codigo: 'Código',
+  nombre: 'Nombre',
+  rol: 'Rol',
+  obra_id: 'Obra',
+  usuario_id: 'Usuario',
+  empresa_id: 'ID Empresa',
+  empresa_nombre: 'Empresa',
+  documento_id: 'ID Documento',
+  entidad_tipo: 'Tipo de entidad',
+  nivel: 'Nivel de alerta',
+  umbral_dias: 'Umbral (días)',
+  dias_restantes: 'Días restantes',
+  cargos_creados: 'Cargos creados',
+  categorias_epp_creadas: 'Categorías EPP creadas',
+  tipos_capacitacion_creados: 'Tipos capacitación creados',
+  tipos_documentales_creados: 'Tipos documentales creados',
+  requisitos_capacitacion_creados: 'Requisitos capacitación creados',
+  requisitos_documentales_creados: 'Requisitos documentales creados',
+  creadas: 'Alertas creadas',
+  actualizadas: 'Alertas actualizadas',
+  resueltas: 'Alertas resueltas',
+};
+
+function entityLabel(ent) {
+  if (!ent) return 'General';
+  return ENTITY_LABELS[ent] || ent.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
+function actionMeta(accion) {
+  const raw = String(accion || '').trim();
+  const low = raw.toLowerCase();
+  let label = ACTION_LABELS[raw];
+  if (!label) {
+    label = raw
+      .replace(/[._]/g, ' · ')
+      .replace(/\b(crear|create)\b/gi, 'Crear')
+      .replace(/\b(aprobar|aprobado)\b/gi, 'Aprobar')
+      .replace(/\b(rechazar|rechazado)\b/gi, 'Rechazar')
+      .replace(/\b(actualizar|update)\b/gi, 'Actualizar')
+      .replace(/\b(marcar · leida)\b/gi, 'Marcar leída');
+  }
+  let tone = 'neutral';
+  if (low.includes('aprobar') || low.includes('crear') || low.includes('create') || low.includes('activar') || low.includes('habilitar')) {
+    tone = 'ok';
+  } else if (low.includes('rechazar') || low.includes('revocar') || low.includes('revoke') || low.includes('eliminar') || low.includes('desactivar')) {
+    tone = 'bad';
+  } else if (low.includes('revision') || low.includes('pendiente') || low.includes('actualizar') || low.includes('marcar_leida')) {
+    tone = 'warn';
+  }
+  return { label, code: raw, tone };
+}
+
+function actorInfo(log) {
+  const byId = log.actor_id ? members.value.find(m => String(m.usuario_id) === String(log.actor_id)) : null;
+  const byUsername = log.actor_username ? members.value.find(m => String(m.username) === String(log.actor_username) || String(m.usuario_id) === String(log.actor_username)) : null;
+  const member = byId || byUsername;
+  const name = log.actor_name || (member?.name && member.name !== member.username ? member.name : '') || '';
+  const email = log.actor_email || member?.email || '';
+  const rawUser = log.actor_username || (log.actor_id ? String(log.actor_id) : '');
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(rawUser);
+  if (name || email) {
+    return {
+      primary: name || email,
+      secondary: name && email ? email : (isUuid ? `ID #${rawUser.slice(0, 8)}` : rawUser),
+    };
+  }
+  if (!rawUser) return { primary: 'Sistema Automático', secondary: 'Proceso interno TOCAL' };
+  if (isUuid) return { primary: 'Usuario Corporativo', secondary: `ID #${rawUser.slice(0, 8)}` };
+  return { primary: rawUser, secondary: '' };
+}
+
+function formatAuditDate(iso) {
+  const raw = String(iso || '');
+  if (!raw) return { date: '—', time: '' };
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) {
+    return {
+      date: d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      time: d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    };
+  }
+  const [datePart, timePart] = raw.slice(0, 19).split('T');
+  return { date: datePart || raw, time: timePart || '' };
+}
+
+function shortEntityId(val) {
+  const s = String(val || '').trim();
+  if (!s) return '—';
+  if (s.length <= 12) return `#${s}`;
+  return `#${s.slice(0, 8)}…`;
+}
+
+async function copyEntityId(val) {
+  const s = String(val || '').trim();
+  if (!s) return;
+  try {
+    await navigator.clipboard.writeText(s);
+    copiedAuditId.value = s;
+    setTimeout(() => { if (copiedAuditId.value === s) copiedAuditId.value = ''; }, 1800);
+  } catch { /* ignore */ }
+}
+
+function formatDetailValue(key, val) {
+  if (val === true) return key === 'leida' ? 'Leída ✓' : 'Sí';
+  if (val === false) return key === 'leida' ? 'No leída' : 'No';
+  if (val === null || val === undefined || val === '') return '—';
+  if (Array.isArray(val)) return val.length ? `${val.length} elemento(s)` : 'Vacío';
+  if (typeof val === 'object') return JSON.stringify(val);
+  const s = String(val);
+  if (s === 'pendiente' || s === 'en_revision') return 'En revisión';
+  if (s === 'aprobado') return 'Aprobado';
+  if (s === 'rechazado') return 'Rechazado';
+  return s;
+}
+
+function detailEntries(detalle) {
+  if (!detalle || typeof detalle !== 'object') return [];
+  return Object.entries(detalle)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => ({
+      key: k,
+      label: DETAIL_KEY_LABELS[k] || k.replace(/_/g, ' '),
+      value: formatDetailValue(k, v),
+    }));
+}
+
 const filteredAuditLogs = computed(() => {
   const q = auditSearch.value.trim().toLowerCase();
   const ent = auditEntityFilter.value.trim().toLowerCase();
   return auditLogs.value.filter(log => {
     if (ent && String(log.entidad || '').toLowerCase() !== ent) return false;
     if (q) {
-      const hay = `${log.accion || ''} ${log.entidad || ''} ${log.actor_username || ''} ${JSON.stringify(log.detalle || {})}`.toLowerCase();
+      const actor = actorInfo(log);
+      const act = actionMeta(log.accion);
+      const hay = `${log.accion || ''} ${act.label} ${log.entidad || ''} ${entityLabel(log.entidad)} ${actor.primary} ${actor.secondary} ${log.entidad_id || ''} ${JSON.stringify(log.detalle || {})}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
 });
+
+const auditStats = computed(() => {
+  const list = filteredAuditLogs.value;
+  let docsAndPrev = 0;
+  let accessAndRoles = 0;
+  let alertsCount = 0;
+  for (const l of list) {
+    const e = String(l.entidad || '').toLowerCase();
+    const a = String(l.accion || '').toLowerCase();
+    if (e.includes('alerta') || a.includes('alerta')) alertsCount++;
+    else if (e.includes('rol') || e.includes('membresia') || a.includes('rol') || a.includes('permiso')) accessAndRoles++;
+    else docsAndPrev++;
+  }
+  return { total: list.length, docsAndPrev, accessAndRoles, alertsCount };
+});
+
 const auditEntities = computed(() => [...new Set(auditLogs.value.map(l => l.entidad).filter(Boolean))].sort());
 const selectedRoleId = ref(''), selectedPermissions = ref([]), expandedMemberId = ref(null);
 const newRole = ref({ codigo: '', nombre: '', descripcion: '' });
@@ -146,15 +334,19 @@ async function revoke(item) {
   await perform(() => auth.revokeAssignment(companyId.value, item.id), 'Asignación revocada.');
 }
 function exportAuditCsv() {
-  const lines = ['Fecha;Actor;Accion;Entidad;ID_Entidad;Detalle'];
+  const lines = ['Fecha;Actor;Correo_o_Referencia;Operacion;Codigo_Accion;Entidad;ID_Entidad;Detalle'];
   for (const log of filteredAuditLogs.value) {
     const fecha = String(log.creado_en || '').slice(0, 19).replace('T', ' ');
-    const actor = String(log.actor_username || log.actor_id || 'Sistema').replace(/;/g, ',');
+    const act = actorInfo(log);
+    const actor = String(act.primary || 'Sistema').replace(/;/g, ',');
+    const actorSec = String(act.secondary || '').replace(/;/g, ',');
+    const meta = actionMeta(log.accion);
+    const op = String(meta.label || '').replace(/;/g, ',');
     const accion = String(log.accion || '').replace(/;/g, ',');
-    const entidad = String(log.entidad || '').replace(/;/g, ',');
+    const entidad = String(entityLabel(log.entidad) || '').replace(/;/g, ',');
     const entId = String(log.entidad_id || '').replace(/;/g, ',');
-    const det = log.detalle ? JSON.stringify(log.detalle).replace(/;/g, ',') : '';
-    lines.push(`${fecha};${actor};${accion};${entidad};${entId};${det}`);
+    const det = detailEntries(log.detalle).map(i => `${i.label}: ${i.value}`).join(' | ').replace(/;/g, ',');
+    lines.push(`${fecha};${actor};${actorSec};${op};${accion};${entidad};${entId};${det}`);
   }
   const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -366,38 +558,161 @@ watch(companyId, () => { roles.value=[]; permissions.value=[]; members.value=[];
         </tbody></table></div>
       </section>
       <section v-if="activeTab === 'audit' && canViewAudit" class="card authorization-admin__pane">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-          <h2 style="margin:0">Auditoría de seguridad y operaciones ({{ filteredAuditLogs.length }})</h2>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div>
+            <h2 style="margin:0">Auditoría de seguridad y operaciones ({{ filteredAuditLogs.length }})</h2>
+            <p style="margin:4px 0 0;color:var(--muted-fg,#6f6d68);font-size:0.88rem">
+              Trazabilidad inmutable de aprobaciones documentales, alertas preventivas, roles RBAC y operaciones críticas.
+            </p>
+          </div>
           <button v-if="filteredAuditLogs.length" type="button" class="btn btn-primary btn-sm" @click="exportAuditCsv">
             Exportar bitácora de auditoría (CSV)
           </button>
         </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
-          <label style="flex:1;min-width:200px">Buscar acción, actor o detalle
-            <input v-model.trim="auditSearch" type="search" placeholder="Ej: documentos.aprobar, rol, equipo…" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:7px" />
+
+        <div class="stat-grid cols-4" style="margin-bottom:16px">
+          <div class="audit-kpi">
+            <small>Eventos listados</small>
+            <strong>{{ auditStats.total }}</strong>
+          </div>
+          <div class="audit-kpi">
+            <small>Documentos y Prevención</small>
+            <strong>{{ auditStats.docsAndPrev }}</strong>
+          </div>
+          <div class="audit-kpi">
+            <small>Alertas de Vencimiento</small>
+            <strong>{{ auditStats.alertsCount }}</strong>
+          </div>
+          <div class="audit-kpi">
+            <small>Accesos, Roles y RBAC</small>
+            <strong>{{ auditStats.accessAndRoles }}</strong>
+          </div>
+        </div>
+
+        <div class="form-row-grid" style="margin:14px 0;align-items:end">
+          <label style="grid-column:span 2;min-width:220px">Buscar por acción, responsable, correo, ID o detalle
+            <input v-model.trim="auditSearch" type="search" placeholder="Ej: aprobar, alerta, admin@tocal.cl, rol…" style="width:100%;padding:9px 12px;border:1px solid var(--border-strong,#cbd5e1);border-radius:8px" />
           </label>
-          <label style="min-width:180px">Entidad
-            <select v-model="auditEntityFilter" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:7px">
-              <option value="">Todas</option>
-              <option v-for="ent in auditEntities" :key="ent" :value="ent">{{ ent }}</option>
+          <label style="min-width:200px">Filtrar por tipo de entidad
+            <select v-model="auditEntityFilter" style="width:100%;padding:9px 12px;border:1px solid var(--border-strong,#cbd5e1);border-radius:8px">
+              <option value="">Todas las entidades ({{ auditEntities.length }})</option>
+              <option v-for="ent in auditEntities" :key="ent" :value="ent">{{ entityLabel(ent) }}</option>
             </select>
           </label>
         </div>
-        <p v-if="!filteredAuditLogs.length">No hay eventos registrados para los filtros seleccionados.</p>
-        <div v-else class="authorization-admin__scroll">
-          <table class="authorization-admin__table">
-            <thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Entidad</th><th>ID</th><th>Detalle</th></tr></thead>
+
+        <p v-if="!filteredAuditLogs.length" class="muted" style="padding:18px 0">No hay eventos registrados para los filtros seleccionados.</p>
+        <div v-else class="tbl-wrap authorization-admin__scroll">
+          <table class="authorization-admin__table audit-table">
+            <thead>
+              <tr>
+                <th>Fecha y hora</th>
+                <th>Actor responsable</th>
+                <th>Operación realizada</th>
+                <th>Entidad afectada</th>
+                <th>Referencia ID</th>
+                <th>Detalle registrado</th>
+              </tr>
+            </thead>
             <tbody>
               <tr v-for="log in filteredAuditLogs" :key="log.id">
-                <td>{{ String(log.creado_en || '').slice(0, 19).replace('T', ' ') }}</td>
-                <td>{{ log.actor_username || log.actor_id || 'Sistema' }}</td>
-                <td><code>{{ log.accion }}</code></td>
-                <td>{{ log.entidad }}</td>
-                <td><code>{{ log.entidad_id }}</code></td>
-                <td><small>{{ log.detalle && Object.keys(log.detalle).length ? JSON.stringify(log.detalle) : '—' }}</small></td>
+                <td class="audit-cell-date">
+                  <strong>{{ formatAuditDate(log.creado_en).date }}</strong>
+                  <small>{{ formatAuditDate(log.creado_en).time }}</small>
+                </td>
+                <td class="audit-cell-actor">
+                  <strong>{{ actorInfo(log).primary }}</strong>
+                  <small v-if="actorInfo(log).secondary">{{ actorInfo(log).secondary }}</small>
+                </td>
+                <td class="audit-cell-action">
+                  <span class="audit-badge" :class="`audit-badge--${actionMeta(log.accion).tone}`">
+                    {{ actionMeta(log.accion).label }}
+                  </span>
+                  <code class="audit-code">{{ actionMeta(log.accion).code }}</code>
+                </td>
+                <td class="audit-cell-entity">
+                  <strong>{{ entityLabel(log.entidad) }}</strong>
+                  <small v-if="ENTITY_LABELS[log.entidad]">{{ log.entidad }}</small>
+                </td>
+                <td class="audit-cell-id">
+                  <button
+                    v-if="log.entidad_id"
+                    type="button"
+                    class="audit-id-pill"
+                    :title="`ID completo: ${log.entidad_id} (clic para copiar)`"
+                    @click="copyEntityId(log.entidad_id)"
+                  >
+                    {{ copiedAuditId === String(log.entidad_id) ? '✓ Copiado' : shortEntityId(log.entidad_id) }}
+                  </button>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="audit-cell-detail" style="text-align:right">
+                  <button
+                    v-if="detailEntries(log.detalle).length"
+                    type="button"
+                    class="btn btn-sm"
+                    :class="activeAuditLog?.id === log.id ? 'btn-primary' : 'btn-ghost'"
+                    @click="activeAuditLog = activeAuditLog?.id === log.id ? null : log"
+                  >
+                    {{ activeAuditLog?.id === log.id ? 'Ocultar detalle' : `Ver detalle (${detailEntries(log.detalle).length})` }}
+                  </button>
+                  <span v-else class="muted" style="font-size:12px">Sin detalle</span>
+                </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- MINI VENTANA NUBE FLOTANTE DE DETALLE DE AUDITORÍA -->
+        <div v-if="activeAuditLog" class="audit-cloud-backdrop" @click.self="activeAuditLog = null">
+          <div class="audit-cloud-modal" role="dialog" aria-modal="true" aria-label="Detalle del registro de auditoría">
+            <div class="audit-cloud-modal__header">
+              <div>
+                <span class="audit-badge" :class="`audit-badge--${actionMeta(activeAuditLog.accion).tone}`">
+                  {{ actionMeta(activeAuditLog.accion).label }}
+                </span>
+                <code class="audit-code" style="margin-top:6px">{{ actionMeta(activeAuditLog.accion).code }}</code>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" @click="activeAuditLog = null">✕ Cerrar</button>
+            </div>
+
+            <div class="audit-cloud-modal__meta">
+              <div>
+                <small>Fecha y hora</small>
+                <strong>{{ formatAuditDate(activeAuditLog.creado_en).date }} · {{ formatAuditDate(activeAuditLog.creado_en).time }}</strong>
+              </div>
+              <div>
+                <small>Actor responsable</small>
+                <strong>{{ actorInfo(activeAuditLog).primary }}</strong>
+                <span v-if="actorInfo(activeAuditLog).secondary" class="muted" style="display:block;font-size:11.5px">{{ actorInfo(activeAuditLog).secondary }}</span>
+              </div>
+              <div>
+                <small>Entidad afectada</small>
+                <strong>{{ entityLabel(activeAuditLog.entidad) }}</strong>
+              </div>
+              <div v-if="activeAuditLog.entidad_id">
+                <small>ID de referencia</small>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px">
+                  <code style="font-size:11.5px;word-break:break-all">{{ activeAuditLog.entidad_id }}</code>
+                  <button type="button" class="audit-id-pill" @click="copyEntityId(activeAuditLog.entidad_id)">
+                    {{ copiedAuditId === String(activeAuditLog.entidad_id) ? '✓ Copiado' : 'Copiar ID' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="audit-cloud-modal__body">
+              <strong style="font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-fg,#6f6d68)">
+                Datos registrados en la operación ({{ detailEntries(activeAuditLog.detalle).length }})
+              </strong>
+              <div class="audit-cloud-grid">
+                <div v-for="item in detailEntries(activeAuditLog.detalle)" :key="item.key" class="audit-cloud-item">
+                  <small class="audit-cloud-item__k">{{ item.label }}</small>
+                  <strong class="audit-cloud-item__v">{{ item.value }}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </template>
@@ -405,7 +720,7 @@ watch(companyId, () => { roles.value=[]; permissions.value=[]; members.value=[];
 </template>
 
 <style scoped>
-.authorization-admin{display:grid;gap:20px;max-width:1200px}
+.authorization-admin{display:grid;gap:20px;width:100%}
 .authorization-admin__header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .authorization-admin__header h1{margin:0 0 6px}
 .authorization-admin__header p{margin:0;color:var(--muted-fg,#6f6d68)}
@@ -427,6 +742,43 @@ watch(companyId, () => { roles.value=[]; permissions.value=[]; members.value=[];
 .authorization-admin__success{color:var(--ok-ink,#1f5f3b);background:var(--ok-soft,#e3f1e8);padding:12px 16px;border-radius:10px;border:1px solid var(--ok-border,#c4e0cd)}
 .authorization-admin__scroll{overflow:auto;margin-top:16px}
 .authorization-admin__table{width:100%;border-collapse:separate;border-spacing:0;text-align:left}
-.authorization-admin__table code{overflow-wrap:anywhere}
+.authorization-admin__table th,.authorization-admin__table td{padding:12px 14px;vertical-align:middle}
+.audit-kpi{background:var(--surface-subtle,#faf9f6);border:1px solid var(--border,#e2ded5);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px}
+.audit-kpi small{color:var(--muted-fg,#6f6d68);font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.audit-kpi strong{font-size:1.45rem;font-weight:800;color:#171716}
+.audit-table th{white-space:nowrap;font-size:0.76rem;letter-spacing:.04em;text-transform:uppercase}
+.audit-cell-date{white-space:nowrap;min-width:110px}
+.audit-cell-date strong{display:block;font-size:0.86rem;color:#171716}
+.audit-cell-date small{display:block;font-size:0.78rem;color:var(--muted-fg,#6f6d68)}
+.audit-cell-actor{min-width:180px}
+.audit-cell-actor strong{display:block;font-size:0.88rem;color:#171716}
+.audit-cell-actor small{display:block;font-size:0.78rem;color:var(--muted-fg,#6f6d68)}
+.audit-cell-action{min-width:210px}
+.audit-badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:0.78rem;font-weight:700;line-height:1.3;white-space:nowrap}
+.audit-badge--ok{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
+.audit-badge--warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+.audit-badge--bad{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+.audit-badge--neutral{background:#f1f5f9;color:#334155;border:1px solid #e2e8f0}
+.audit-code{display:block;margin-top:4px;font-size:0.72rem;color:#64748b;background:transparent;padding:0;white-space:nowrap}
+.audit-cell-entity{min-width:165px}
+.audit-cell-entity strong{display:block;font-size:0.86rem;color:#171716}
+.audit-cell-entity small{display:block;font-size:0.74rem;color:var(--muted-fg,#6f6d68)}
+.audit-cell-id{white-space:nowrap;min-width:105px}
+.audit-id-pill{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.76rem;padding:4px 8px;border-radius:6px;border:1px solid var(--border-strong,#d4cfc3);background:var(--surface-subtle,#faf9f6);color:#334155;cursor:pointer;white-space:nowrap;transition:all 120ms ease}
+.audit-id-pill:hover{border-color:var(--naranjo,#f26b21);background:#fff;color:#171716}
+.audit-cell-detail{white-space:nowrap;min-width:140px}
+.audit-cloud-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(23,23,22,0.38);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:20px;animation:auditFadeIn 150ms ease-out}
+.audit-cloud-modal{width:min(580px,100%);max-height:85vh;overflow-y:auto;background:#ffffff;border:1px solid var(--border-strong,#d4cfc3);border-radius:18px;box-shadow:0 22px 50px rgba(23,23,22,0.22),0 4px 14px rgba(23,23,22,0.08);padding:22px;display:grid;gap:16px;animation:auditPopIn 160ms cubic-bezier(.16,1,.3,1)}
+.audit-cloud-modal__header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border,#e2ded5)}
+.audit-cloud-modal__meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;background:var(--surface-subtle,#faf9f6);border:1px solid var(--border,#e2ded5);border-radius:12px;padding:12px 14px}
+.audit-cloud-modal__meta small{display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-fg,#6f6d68);margin-bottom:2px}
+.audit-cloud-modal__meta strong{font-size:0.86rem;color:#171716}
+.audit-cloud-modal__body{display:grid;gap:10px}
+.audit-cloud-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.audit-cloud-item{background:#ffffff;border:1px solid var(--border,#e2ded5);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;box-shadow:0 1px 3px rgba(0,0,0,0.03)}
+.audit-cloud-item__k{font-size:0.74rem;color:var(--muted-fg,#6f6d68);text-transform:capitalize}
+.audit-cloud-item__v{font-size:0.88rem;color:#171716;word-break:break-word}
+@keyframes auditFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes auditPopIn{from{opacity:0;transform:translateY(8px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:850px){.authorization-admin__grid{grid-template-columns:1fr}}
 </style>
